@@ -356,14 +356,23 @@ export class MainScene extends Phaser.Scene {
     this.healthText.setText(`Health: ${this.health}`);
   
     if (this.health <= 0) {
-      // End current run timer
+      // End timer if it was running
       if (this.timerRunning) {
         this.timerRunning = false;
         const seconds = (this.elapsedTime / 1000).toFixed(2);
         console.log(`Run ended (wreck) at ${seconds}s`);
       }
   
-      this.handleDeathAndRespawn();
+      // Mark player as DNF for this run
+      this.playerFinishTime = null;
+  
+      // Stop the car and show wreck state
+      const body = this.player.body as Phaser.Physics.Arcade.Body;
+      body.setVelocity(0, 0);
+      this.player.setTint(0xff0000);
+  
+      // IMPORTANT: do NOT set isRaceOver or showRaceResults here
+      // NPCs will keep going, and we'll show results when someone finishes.
     }
   }
   
@@ -422,7 +431,6 @@ export class MainScene extends Phaser.Scene {
     const seconds = (runTime / 1000).toFixed(2);
     console.log(`Finished in ${seconds}s`);
   
-    // Update best time like before
     if (this.bestTime === null || runTime < this.bestTime) {
       this.bestTime = runTime;
       this.bestTimeText.setText(`Best: ${seconds}s`);
@@ -449,8 +457,19 @@ export class MainScene extends Phaser.Scene {
   
     if (!npcCar.finished) {
       npcCar.finished = true;
-      npcCar.finishTime = this.elapsedTime; // ms in this run
-      console.log(`${npcCar.name} finished at ${(this.elapsedTime / 1000).toFixed(2)}s`);
+      npcCar.finishTime = this.elapsedTime;
+      console.log(
+        `${npcCar.name} finished at ${(this.elapsedTime / 1000).toFixed(2)}s`
+      );
+    }
+  
+    // If you already wrecked (playerFinishTime === null and health <= 0),
+    // show results as soon as the FIRST NPC finishes.
+    const playerDead = this.health <= 0 && this.playerFinishTime === null;
+  
+    if (playerDead) {
+      this.isRaceOver = true;
+      this.showRaceResults();
     }
   }
 
@@ -529,63 +548,69 @@ export class MainScene extends Phaser.Scene {
     const maxSpeed = 300;                 // forward max
     const maxReverse = 100;               // reverse max
   
-    // 1) Steering
-    if (this.cursors.left?.isDown) {
-      this.player.rotation -= turnSpeed;
-    } else if (this.cursors.right?.isDown) {
-      this.player.rotation += turnSpeed;
-    }
-  
-    // 2) Get current scalar speed
-    let speed = body.velocity.length();
-  
-    // Determine if we’re moving forward or backward
-    // by checking dot product of velocity and facing
-    const facing = new Phaser.Math.Vector2(
-      Math.cos(this.player.rotation),
-      Math.sin(this.player.rotation)
-    );
-    const movingForward =
-      body.velocity.dot(facing) >= 0; // true if roughly same direction
-  
-    if (!movingForward) {
-      speed = -speed; // treat backwards motion as negative speed
-    }
-  
-    // 3) Throttle / brake input
-    if (this.cursors.up?.isDown) {
-      speed += accel * 100;
-    } else if (this.cursors.down?.isDown) {
-      if (speed > 0) {
-        // braking while moving forward
-        speed -= brake * 100;
-      } else {
-        // accelerate backwards
-        speed -= accel * 80;
-      }
-    } else {
-      // No throttle: apply friction
-      speed *= friction;
-    }
-  
-    // 4) Clamp speeds
-    if (speed > maxSpeed) speed = maxSpeed;
-    if (speed < -maxReverse) speed = -maxReverse;
-  
-    // 5) Apply velocity along car’s facing direction
-    this.physics.velocityFromRotation(
-      this.player.rotation,
-      speed,
-      body.velocity
-    );
+    // ⛔ If you're wrecked, don't process movement/timer for the player
+    const isPlayerDead = this.health <= 0;
+    if (!isPlayerDead && !this.isRaceOver) {
 
-    // 6) Start timer the first time the player attempts to move this run
-    if (
-        !this.hasMoved &&
-        (this.cursors.up?.isDown || this.cursors.down?.isDown)
-    ) {
-        this.hasMoved = true;
-        this.timerRunning = true;
+
+        // 1) Steering
+        if (this.cursors.left?.isDown) {
+        this.player.rotation -= turnSpeed;
+        } else if (this.cursors.right?.isDown) {
+        this.player.rotation += turnSpeed;
+        }
+    
+        // 2) Get current scalar speed
+        let speed = body.velocity.length();
+    
+        // Determine if we’re moving forward or backward
+        // by checking dot product of velocity and facing
+        const facing = new Phaser.Math.Vector2(
+        Math.cos(this.player.rotation),
+        Math.sin(this.player.rotation)
+        );
+        const movingForward =
+        body.velocity.dot(facing) >= 0; // true if roughly same direction
+    
+        if (!movingForward) {
+        speed = -speed; // treat backwards motion as negative speed
+        }
+    
+        // 3) Throttle / brake input
+        if (this.cursors.up?.isDown) {
+        speed += accel * 100;
+        } else if (this.cursors.down?.isDown) {
+        if (speed > 0) {
+            // braking while moving forward
+            speed -= brake * 100;
+        } else {
+            // accelerate backwards
+            speed -= accel * 80;
+        }
+        } else {
+        // No throttle: apply friction
+        speed *= friction;
+        }
+    
+        // 4) Clamp speeds
+        if (speed > maxSpeed) speed = maxSpeed;
+        if (speed < -maxReverse) speed = -maxReverse;
+    
+        // 5) Apply velocity along car’s facing direction
+        this.physics.velocityFromRotation(
+        this.player.rotation,
+        speed,
+        body.velocity
+        );
+
+        // 6) Start timer the first time the player attempts to move this run
+        if (
+            !this.hasMoved &&
+            (this.cursors.up?.isDown || this.cursors.down?.isDown)
+        ) {
+            this.hasMoved = true;
+            this.timerRunning = true;
+        }
     }
     // Update timer
     if (this.timerRunning) {
@@ -595,6 +620,28 @@ export class MainScene extends Phaser.Scene {
     }
   }
   private updateNPCs(delta: number) {
+    // If race is over because YOU finished, freeze NPCs.
+    // If race is over because you wrecked (playerFinishTime === null),
+    // we let them keep racing.
+    if (this.isRaceOver && this.playerFinishTime !== null) {
+        for (const npcCar of this.npcCars) {
+        const body = npcCar.sprite.body as Phaser.Physics.Arcade.Body;
+        body.setVelocity(0, 0);
+        }
+        return;
+    }
+    
+    // Don't move NPCs until the player actually starts their run
+    if (!this.hasMoved) {
+        for (const npcCar of this.npcCars) {
+        const body = npcCar.sprite.body as Phaser.Physics.Arcade.Body;
+        body.setVelocity(0, 0);
+        }
+        return;
+    }
+    
+    if (npcWaypoints.length === 0) return;
+
     // Don't move NPCs until the player actually starts their run
     if (!this.hasMoved) {
       for (const npcCar of this.npcCars) {
