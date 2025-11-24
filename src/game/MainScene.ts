@@ -13,6 +13,19 @@ export class MainScene extends Phaser.Scene {
   private elapsedTime = 0;              // ms
   private timerRunning = false;
   private timerText!: Phaser.GameObjects.Text;
+  private hasMoved = false;
+  
+  private bestTime: number | null = null;
+  private bestTimeText!: Phaser.GameObjects.Text;
+  
+  private restartKey!: Phaser.Input.Keyboard.Key;
+
+
+
+
+  private elapsedTime = 0;              // ms
+  private timerRunning = false;
+  private timerText!: Phaser.GameObjects.Text;
   private hasMoved = false;             // has the car started a run yet?
 
 
@@ -34,16 +47,16 @@ export class MainScene extends Phaser.Scene {
 
   create() {
     this.walls = this.physics.add.staticGroup();
-
+  
     this.buildMap();
     this.createPlayer();
     this.createGoalZone();
     this.createUI();
-
+  
     this.cursors = this.input.keyboard.createCursorKeys();
-
-    // Optional: turn this on in config.ts for visual debugging:
-    // physics.arcade.debug = true
+    this.restartKey = this.input.keyboard.addKey(
+      Phaser.Input.Keyboard.KeyCodes.R
+    );
   }
 
   private createUI() {
@@ -60,7 +73,14 @@ export class MainScene extends Phaser.Scene {
         color: '#ffffff',
       })
       .setScrollFactor(0);
-  } 
+  
+    this.bestTimeText = this.add
+      .text(10, 54, 'Best: --.--s', {
+        fontSize: '18px',
+        color: '#ffffff',
+      })
+      .setScrollFactor(0);
+  }
 
   private buildMap() {
     const rows = level1.length;
@@ -198,23 +218,7 @@ export class MainScene extends Phaser.Scene {
   }
   
   private handleDeathAndRespawn() {
-    // Reset health
-    this.health = 100;
-    this.healthText.setText(`Health: ${this.health}`);
-  
-    // Reset position
-    this.player.x = this.spawnPos.x;
-    this.player.y = this.spawnPos.y;
-    this.player.rotation = 0;
-  
-    const body = this.player.body as Phaser.Physics.Arcade.Body;
-    body.setVelocity(0, 0);
-  
-    // Reset timer for the next run
-    this.elapsedTime = 0;
-    this.timerRunning = false;
-    this.hasMoved = false;
-    this.timerText.setText('Time: 0.00s');
+    this.startNewRound();
   
     // Brief "respawn" flash
     this.player.setTint(0x00ffff);
@@ -246,22 +250,60 @@ export class MainScene extends Phaser.Scene {
   }
 
   private handleGoalReached() {
-    if (this.timerRunning) {
-      this.timerRunning = false;
+    if (!this.timerRunning) return;
   
-      const seconds = (this.elapsedTime / 1000).toFixed(2);
-      console.log(`Finished in ${seconds}s`);
+    this.timerRunning = false;
   
-      this.player.setTint(0x00ff00);
-      this.time.delayedCall(300, () => {
-        this.player.clearTint();
-      });
+    const runTime = this.elapsedTime; // ms
+    const seconds = (runTime / 1000).toFixed(2);
+    console.log(`Finished in ${seconds}s`);
+  
+    // Update best time
+    if (this.bestTime === null || runTime < this.bestTime) {
+      this.bestTime = runTime;
+      this.bestTimeText.setText(`Best: ${seconds}s`);
+      console.log('New best time!');
     }
+  
+    // Nice little success flash
+    this.player.setTint(0x00ff00);
+    this.time.delayedCall(300, () => {
+      this.player.clearTint();
+    });
+  }
+
+  private startNewRound() {
+    // Reset timer state
+    this.elapsedTime = 0;
+    this.timerRunning = false;
+    this.hasMoved = false;
+    this.timerText.setText('Time: 0.00s');
+  
+    // Reset health
+    this.health = 100;
+    this.healthText.setText('Health: 100');
+  
+    // Reset position/orientation
+    this.player.x = this.spawnPos.x;
+    this.player.y = this.spawnPos.y;
+    this.player.rotation = 0;
+  
+    const body = this.player.body as Phaser.Physics.Arcade.Body;
+    body.setVelocity(0, 0);
+  
+    // Clear any tint (goal/damage/respawn)
+    this.player.clearTint();
   }
 
   update(time: number, delta: number) {
     if (!this.player || !this.cursors) return;
   
+    // Press R to start a new round
+    if (Phaser.Input.Keyboard.JustDown(this.restartKey)) {
+        this.startNewRound();
+        return;
+    }
+
     const body = this.player.body as Phaser.Physics.Arcade.Body;
   
     // --- CONFIG TUNING ---
