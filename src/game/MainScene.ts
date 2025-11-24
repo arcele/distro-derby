@@ -80,15 +80,17 @@ export class MainScene extends Phaser.Scene {
   private createPlayer() {
     // Spawn at S
     this.player = this.physics.add.sprite(this.spawnPos.x, this.spawnPos.y, 'car');
-
+  
     this.player.setCollideWorldBounds(true);
-    this.player.setDamping(true);
-    this.player.setDrag(400, 400);
-    this.player.setMaxVelocity(250, 250);
-
+  
+    // Let us handle speed/friction manually
+    this.player.setDamping(false);
+    this.player.setDrag(0, 0);
+    this.player.setMaxVelocity(400, 400);
+  
     // Point the car to the right to start
     this.player.setAngle(0);
-
+  
     // Collide with walls
     this.physics.add.collider(this.player, this.walls);
   }
@@ -122,34 +124,65 @@ export class MainScene extends Phaser.Scene {
 
   update(time: number, delta: number) {
     if (!this.player || !this.cursors) return;
-
+  
     const body = this.player.body as Phaser.Physics.Arcade.Body;
-
-    // Rotation
-    const turnSpeed = 0.003 * delta; // radians per ms
+  
+    // --- CONFIG TUNING ---
+    const turnSpeed = 0.003 * delta;      // radians per ms
+    const accel = 0.004 * delta;          // forward acceleration
+    const brake = 0.006 * delta;          // stronger decel when braking
+    const friction = 0.985;               // natural slowdown when coasting
+    const maxSpeed = 300;                 // forward max
+    const maxReverse = 100;               // reverse max
+  
+    // 1) Steering
     if (this.cursors.left?.isDown) {
       this.player.rotation -= turnSpeed;
     } else if (this.cursors.right?.isDown) {
       this.player.rotation += turnSpeed;
     }
-
-    // Thrust
-    const accel = 0.006 * delta; // pixels/s per ms
-    if (this.cursors.up?.isDown) {
-      this.physics.velocityFromRotation(
-        this.player.rotation,
-        accel * 100,
-        body.velocity
-      );
-    } else if (this.cursors.down?.isDown) {
-      this.physics.velocityFromRotation(
-        this.player.rotation,
-        -accel * 60,
-        body.velocity
-      );
-    } else {
-      // No input → let drag slow us down naturally
-      // (body.drag is already set)
+  
+    // 2) Get current scalar speed
+    let speed = body.velocity.length();
+  
+    // Determine if we’re moving forward or backward
+    // by checking dot product of velocity and facing
+    const facing = new Phaser.Math.Vector2(
+      Math.cos(this.player.rotation),
+      Math.sin(this.player.rotation)
+    );
+    const movingForward =
+      body.velocity.dot(facing) >= 0; // true if roughly same direction
+  
+    if (!movingForward) {
+      speed = -speed; // treat backwards motion as negative speed
     }
+  
+    // 3) Throttle / brake input
+    if (this.cursors.up?.isDown) {
+      speed += accel * 100;
+    } else if (this.cursors.down?.isDown) {
+      if (speed > 0) {
+        // braking while moving forward
+        speed -= brake * 100;
+      } else {
+        // accelerate backwards
+        speed -= accel * 80;
+      }
+    } else {
+      // No throttle: apply friction
+      speed *= friction;
+    }
+  
+    // 4) Clamp speeds
+    if (speed > maxSpeed) speed = maxSpeed;
+    if (speed < -maxReverse) speed = -maxReverse;
+  
+    // 5) Apply velocity along car’s facing direction
+    this.physics.velocityFromRotation(
+      this.player.rotation,
+      speed,
+      body.velocity
+    );
   }
 }
