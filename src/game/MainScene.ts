@@ -44,6 +44,8 @@ export class MainScene extends Phaser.Scene {
   private isRaceOver = false;
   private resultsText?: Phaser.GameObjects.Text;
 
+  private playerDNF = false;
+
   constructor() {
     super('MainScene');
   }
@@ -363,16 +365,18 @@ export class MainScene extends Phaser.Scene {
         console.log(`Run ended (wreck) at ${seconds}s`);
       }
   
-      // Mark player as DNF for this run
+      // Mark as DNF for this run
       this.playerFinishTime = null;
+      this.playerDNF = true;
   
       // Stop the car and show wreck state
       const body = this.player.body as Phaser.Physics.Arcade.Body;
       body.setVelocity(0, 0);
       this.player.setTint(0xff0000);
   
-      // IMPORTANT: do NOT set isRaceOver or showRaceResults here
-      // NPCs will keep going, and we'll show results when someone finishes.
+      // Do NOT end race or show results yet; NPCs keep racing.
+      // We'll show results once all NPCs have finished:
+      this.tryShowRaceResults();
     }
   }
   
@@ -420,37 +424,41 @@ export class MainScene extends Phaser.Scene {
   }
 
   private handleGoalReached() {
-    if (!this.timerRunning || this.isRaceOver) return;
+    if (!this.timerRunning) return;
   
     this.timerRunning = false;
-    this.isRaceOver = true;
   
     const runTime = this.elapsedTime;
     this.playerFinishTime = runTime;
+    this.playerDNF = false; // definitely not a DNF
   
     const seconds = (runTime / 1000).toFixed(2);
     console.log(`Finished in ${seconds}s`);
   
+    // Best-time logic stays the same
     if (this.bestTime === null || runTime < this.bestTime) {
       this.bestTime = runTime;
       this.bestTimeText.setText(`Best: ${seconds}s`);
       console.log('New best time!');
     }
   
+    // Stop the car on the line
+    const body = this.player.body as Phaser.Physics.Arcade.Body;
+    body.setVelocity(0, 0);
+  
     this.player.setTint(0x00ff00);
     this.time.delayedCall(300, () => {
       this.player.clearTint();
     });
   
-    this.showRaceResults();
+    // Now see if we can show results (will only show if all NPCs also done)
+    this.tryShowRaceResults();
   }
 
   private handleNPCGoalReached(
     npcGO: Phaser.GameObjects.GameObject,
     _goal: Phaser.GameObjects.GameObject
   ) {
-    if (this.isRaceOver) return;
-  
     const npc = npcGO as Phaser.Physics.Arcade.Sprite;
     const npcCar = this.npcCars.find(c => c.sprite === npc);
     if (!npcCar) return;
@@ -463,28 +471,22 @@ export class MainScene extends Phaser.Scene {
       );
     }
   
-    // If you already wrecked (playerFinishTime === null and health <= 0),
-    // show results as soon as the FIRST NPC finishes.
-    const playerDead = this.health <= 0 && this.playerFinishTime === null;
-  
-    if (playerDead) {
-      this.isRaceOver = true;
-      this.showRaceResults();
-    }
+    // Check if now everyone is done (player finished or DNF + all NPCs)
+    this.tryShowRaceResults();
   }
 
   private startNewRound() {
-    // Reset timer state
+    // Timer state
     this.elapsedTime = 0;
     this.timerRunning = false;
     this.hasMoved = false;
     this.timerText.setText('Time: 0.00s');
   
-    // Reset health
+    // Health
     this.health = 100;
     this.healthText.setText('Health: 100');
   
-    // Reset player
+    // Player
     this.player.x = this.spawnPos.x;
     this.player.y = this.spawnPos.y;
     this.player.rotation = 0;
@@ -493,16 +495,17 @@ export class MainScene extends Phaser.Scene {
     playerBody.setVelocity(0, 0);
     this.player.clearTint();
   
-    // Reset race result state
+    // Race flags
     this.isRaceOver = false;
     this.playerFinishTime = null;
+    this.playerDNF = false;
   
     if (this.resultsText) {
       this.resultsText.destroy();
       this.resultsText = undefined;
     }
   
-    // Reset NPCs
+    // NPCs reset (positions, velocities, finished flags, etc.)
     this.npcCars.forEach((npcCar, i) => {
       const npc = npcCar.sprite;
   
@@ -548,9 +551,11 @@ export class MainScene extends Phaser.Scene {
     const maxSpeed = 300;                 // forward max
     const maxReverse = 100;               // reverse max
   
-    // ⛔ If you're wrecked, don't process movement/timer for the player
-    const isPlayerDead = this.health <= 0;
-    if (!isPlayerDead && !this.isRaceOver) {
+    // ⛔ If you're wrecked, or finished don't process movement/timer for the player
+
+    const playerDead = this.health <= 0;
+    const playerFinished = this.playerFinishTime !== null;
+    if (!playerDead && !playerFinished && !this.isRaceOver) {
 
 
         // 1) Steering
@@ -620,10 +625,8 @@ export class MainScene extends Phaser.Scene {
     }
   }
   private updateNPCs(delta: number) {
-    // If race is over because YOU finished, freeze NPCs.
-    // If race is over because you wrecked (playerFinishTime === null),
-    // we let them keep racing.
-    if (this.isRaceOver && this.playerFinishTime !== null) {
+    // Once race is fully over and results shown, freeze NPCs
+    if (this.isRaceOver) {
         for (const npcCar of this.npcCars) {
         const body = npcCar.sprite.body as Phaser.Physics.Arcade.Body;
         body.setVelocity(0, 0);
@@ -640,17 +643,6 @@ export class MainScene extends Phaser.Scene {
         return;
     }
     
-    if (npcWaypoints.length === 0) return;
-
-    // Don't move NPCs until the player actually starts their run
-    if (!this.hasMoved) {
-      for (const npcCar of this.npcCars) {
-        const body = npcCar.sprite.body as Phaser.Physics.Arcade.Body;
-        body.setVelocity(0, 0);
-      }
-      return;
-    }
-  
     if (npcWaypoints.length === 0) return;
   
     for (const npcCar of this.npcCars) {
@@ -702,6 +694,25 @@ export class MainScene extends Phaser.Scene {
       if (distSq < reachRadius) {
         npcCar.waypointIndex = (npcCar.waypointIndex + 1) % npcWaypoints.length;
       }
+    }
+  }
+  private tryShowRaceResults() {
+    if (this.isRaceOver) return;
+  
+    const playerFinished = this.playerFinishTime !== null;
+    const allNPCFinished = this.npcCars.every(c => c.finished);
+  
+    // Case A: you finished, wait for all NPCs
+    if (playerFinished && allNPCFinished) {
+      this.isRaceOver = true;
+      this.showRaceResults();
+      return;
+    }
+  
+    // Case B: you DNF'd (wrecked), wait for all NPCs
+    if (this.playerDNF && allNPCFinished) {
+      this.isRaceOver = true;
+      this.showRaceResults();
     }
   }
   private showRaceResults() {
