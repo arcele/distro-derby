@@ -1,6 +1,11 @@
 // src/game/MainScene.ts
 import Phaser from 'phaser';
-import { level1, TILE_SIZE, TileType } from './level1';
+import { level1, TILE_SIZE, TileType, npcWaypoints } from './level1';
+
+interface NPCCar {
+  sprite: Phaser.Physics.Arcade.Sprite;
+  waypointIndex: number;
+}
 
 export class MainScene extends Phaser.Scene {
   private walls!: Phaser.Physics.Arcade.StaticGroup;
@@ -19,8 +24,7 @@ export class MainScene extends Phaser.Scene {
   private bestTimeText!: Phaser.GameObjects.Text;
   
   private restartKey!: Phaser.Input.Keyboard.Key;
-
-
+  private npcCars: NPCCar[] = []; 
 
 
   private elapsedTime = 0;              // ms
@@ -50,6 +54,7 @@ export class MainScene extends Phaser.Scene {
   
     this.buildMap();
     this.createPlayer();
+    this.createNPCs();
     this.createGoalZone();
     this.createUI();
   
@@ -57,6 +62,46 @@ export class MainScene extends Phaser.Scene {
     this.restartKey = this.input.keyboard.addKey(
       Phaser.Input.Keyboard.KeyCodes.R
     );
+  }
+  
+  private createNPCs() {
+    // How many rivals you want
+    const numNPCs = 2;
+  
+    for (let i = 0; i < numNPCs; i++) {
+      // Slight offset behind/around player spawn so they don't overlap
+      const offsetX = (i + 1) * -TILE_SIZE * 0.6;
+      const offsetY = (i % 2 === 0 ? 1 : -1) * TILE_SIZE * 0.2;
+  
+      const npc = this.physics.add.sprite(
+        this.spawnPos.x + offsetX,
+        this.spawnPos.y + offsetY,
+        'car'
+      );
+  
+      // Tint to differentiate from player
+      const colors = [0x66ccff, 0xff66cc, 0x66ff66];
+      npc.setTint(colors[i % colors.length]);
+  
+      npc.setCollideWorldBounds(true);
+      npc.setDamping(false);
+      npc.setDrag(0, 0);
+      npc.setMaxVelocity(350, 350);
+  
+      // Point them initially toward first waypoint
+      if (npcWaypoints.length > 0) {
+        const wp = npcWaypoints[0];
+        npc.rotation = Phaser.Math.Angle.Between(npc.x, npc.y, wp.x, wp.y);
+      }
+  
+      // Collide with walls (no damage for now)
+      this.physics.add.collider(npc, this.walls);
+  
+      this.npcCars.push({
+        sprite: npc,
+        waypointIndex: 0,
+      });
+    }
   }
 
   private createUI() {
@@ -283,21 +328,44 @@ export class MainScene extends Phaser.Scene {
     this.health = 100;
     this.healthText.setText('Health: 100');
   
-    // Reset position/orientation
+    // Reset player position/orientation
     this.player.x = this.spawnPos.x;
     this.player.y = this.spawnPos.y;
     this.player.rotation = 0;
   
-    const body = this.player.body as Phaser.Physics.Arcade.Body;
-    body.setVelocity(0, 0);
+    const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
+    playerBody.setVelocity(0, 0);
   
-    // Clear any tint (goal/damage/respawn)
     this.player.clearTint();
-  }
+  
+    // Reset NPCs as well
+    for (let i = 0; i < this.npcCars.length; i++) {
+      const npcCar = this.npcCars[i];
+      const npc = npcCar.sprite;
+  
+      const offsetX = (i + 1) * -TILE_SIZE * 0.6;
+      const offsetY = (i % 2 === 0 ? 1 : -1) * TILE_SIZE * 0.2;
+  
+      npc.x = this.spawnPos.x + offsetX;
+      npc.y = this.spawnPos.y + offsetY;
+      npc.rotation = 0;
+  
+      const body = npc.body as Phaser.Physics.Arcade.Body;
+      body.setVelocity(0, 0);
+  
+      npcCar.waypointIndex = 0;
+  
+      if (npcWaypoints.length > 0) {
+        const wp = npcWaypoints[0];
+        npc.rotation = Phaser.Math.Angle.Between(npc.x, npc.y, wp.x, wp.y);
+      }
+    }
+  } 
 
   update(time: number, delta: number) {
     if (!this.player || !this.cursors) return;
-  
+    this.updateNPCs(delta);
+
     // Press R to start a new round
     if (Phaser.Input.Keyboard.JustDown(this.restartKey)) {
         this.startNewRound();
@@ -377,6 +445,46 @@ export class MainScene extends Phaser.Scene {
         this.elapsedTime += delta; // delta is in ms
         const seconds = (this.elapsedTime / 1000).toFixed(2);
         this.timerText.setText(`Time: ${seconds}s`);
+    }
+  }
+  private updateNPCs(delta: number) {
+    const baseSpeed = 220;      // target cruising speed
+    const turnSpeed = 0.0025 * delta;
+  
+    if (npcWaypoints.length === 0) return;
+  
+    for (const npcCar of this.npcCars) {
+      const npc = npcCar.sprite;
+  
+      const wp = npcWaypoints[npcCar.waypointIndex];
+      const dx = wp.x - npc.x;
+      const dy = wp.y - npc.y;
+  
+      const targetAngle = Math.atan2(dy, dx);
+      let angleDiff = Phaser.Math.Angle.Wrap(targetAngle - npc.rotation);
+  
+      // Turn gradually toward waypoint
+      if (angleDiff > 0) {
+        npc.rotation += Math.min(angleDiff, turnSpeed);
+      } else {
+        npc.rotation += Math.max(angleDiff, -turnSpeed);
+      }
+  
+      // Always try to move forward along facing direction
+      const body = npc.body as Phaser.Physics.Arcade.Body;
+      this.physics.velocityFromRotation(
+        npc.rotation,
+        baseSpeed,
+        body.velocity
+      );
+  
+      // If close enough to this waypoint, go to next
+      const distSq = dx * dx + dy * dy;
+      const reachRadius = TILE_SIZE * TILE_SIZE * 0.7; // within ~0.84 * TILE_SIZE
+  
+      if (distSq < reachRadius) {
+        npcCar.waypointIndex = (npcCar.waypointIndex + 1) % npcWaypoints.length;
+      }
     }
   }
 }
