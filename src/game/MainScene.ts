@@ -57,6 +57,7 @@ export class MainScene extends Phaser.Scene {
     this.walls = this.physics.add.staticGroup();
   
     this.buildMap();
+    //    this.drawWaypointDebug();  // Uncomment this line to show waypoint spots for debugging NPC driving path
     this.createPlayer();
     this.createNPCs();
     this.createGoalZone();
@@ -105,7 +106,13 @@ export class MainScene extends Phaser.Scene {
       }
   
       // Collide with walls (no damage for them for now)
-      this.physics.add.collider(npc, this.walls);
+      this.physics.add.collider(
+        npc,
+        this.walls,
+        this.handleNPCWallCollision,
+        undefined,
+        this
+      );
   
       this.npcCars.push({
         sprite: npc,
@@ -258,7 +265,66 @@ export class MainScene extends Phaser.Scene {
       this.player.clearTint();
     });
   }
+
+  private drawWaypointDebug() {
+    npcWaypoints.forEach((wp, index) => {
+      // little circle
+      this.add.circle(wp.x, wp.y, 6, 0xff0000, 0.7);
   
+      // label
+      this.add.text(wp.x + 8, wp.y - 6, index.toString(), {
+        fontSize: '12px',
+        color: '#ffcccc',
+      });
+    });
+  }
+
+  private handleNPCWallCollision(
+    npcGO: Phaser.GameObjects.GameObject,
+    wallGO: Phaser.GameObjects.GameObject
+  ) {
+    const npc = npcGO as Phaser.Physics.Arcade.Sprite;
+    const body = npc.body as Phaser.Physics.Arcade.Body;
+    const speed = body.velocity.length();
+  
+    // Find this NPC's data
+    const npcCar = this.npcCars.find(c => c.sprite === npc);
+    if (!npcCar) return;
+  
+    const wallRect = wallGO as Phaser.GameObjects.Rectangle;
+  
+    // Approximate collision normal: from wall center to NPC
+    const normal = new Phaser.Math.Vector2(
+      npc.x - wallRect.x,
+      npc.y - wallRect.y
+    ).normalize();
+  
+    // Current velocity vector
+    const v = new Phaser.Math.Vector2(body.velocity.x, body.velocity.y);
+  
+    // Component of velocity along the normal
+    const vn = v.dot(normal);
+  
+    // If vn < 0, we're moving into the wall along this normal
+    if (vn < 0) {
+      const restitution = 0.1; // very low bounce, mostly just a nudge
+  
+      // Reflect only the normal component (softly)
+      const bounce = normal.clone().scale((1 + restitution) * vn);
+      v.subtract(bounce);
+  
+      // Lose a bit of energy
+      v.scale(0.92);
+  
+      // Don't let them exceed their preferred speed
+      if (v.length() > npcCar.baseSpeed) {
+        v.normalize().scale(npcCar.baseSpeed);
+      }
+    }
+  
+    body.setVelocity(v.x, v.y);
+  }
+
   private applyDamage(amount: number) {
     this.health -= amount;
     if (this.health < 0) this.health = 0;
@@ -507,8 +573,9 @@ export class MainScene extends Phaser.Scene {
   
       // If close enough to this waypoint, go to next
       const distSq = dx * dx + dy * dy;
-      const reachRadius = TILE_SIZE * TILE_SIZE * 0.7;
-  
+      // Slightly looser radius so they don't have to be super precise
+      const reachRadius = TILE_SIZE * TILE_SIZE * 1.1;
+      
       if (distSq < reachRadius) {
         npcCar.waypointIndex = (npcCar.waypointIndex + 1) % npcWaypoints.length;
       }
