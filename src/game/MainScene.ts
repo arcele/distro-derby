@@ -5,9 +5,11 @@ import { level1, TILE_SIZE, TileType, npcWaypoints } from './level1';
 interface NPCCar {
     sprite: Phaser.Physics.Arcade.Sprite;
     waypointIndex: number;
-    baseSpeed: number;   // how fast this NPC likes to go
-    turnSpeed: number;   // how quickly they steer
-    jitterX: number;     // small offset to their racing line
+  
+    baseSpeed: number;   // preferred straight-line speed
+    turnSpeed: number;   // how fast they can steer (radians/ms)
+    traction: number;    // 0–1: how quickly velocity aligns with heading
+    jitterX: number;     // offset from waypoint center
     jitterY: number;
   }
 
@@ -30,14 +32,6 @@ export class MainScene extends Phaser.Scene {
   private restartKey!: Phaser.Input.Keyboard.Key;
   private npcCars: NPCCar[] = []; 
 
-
-  private elapsedTime = 0;              // ms
-  private timerRunning = false;
-  private timerText!: Phaser.GameObjects.Text;
-  private hasMoved = false;             // has the car started a run yet?
-
-
-
   private spawnPos = { x: 0, y: 0 };
   private goalPos = { x: 0, y: 0 };
 
@@ -57,7 +51,7 @@ export class MainScene extends Phaser.Scene {
     this.walls = this.physics.add.staticGroup();
   
     this.buildMap();
-    //    this.drawWaypointDebug();  // Uncomment this line to show waypoint spots for debugging NPC driving path
+        this.drawWaypointDebug();  // Uncomment this line to show waypoint spots for debugging NPC driving path
     this.createPlayer();
     this.createNPCs();
     this.createGoalZone();
@@ -70,10 +64,34 @@ export class MainScene extends Phaser.Scene {
   }
   
   private createNPCs() {
-    const numNPCs = 2;
+    // You can tweak or add more entries here
+    const npcConfigs = [
+      { // Quick, high control, high traction
+        color: 0x66ccff,
+        baseSpeed: 230,        // pretty quick
+        turnSpeed: 0.0030,     // steers well
+        traction: 0.35,        // snaps to line fairly quickly
+        jitterRange: TILE_SIZE * 0.12,
+      },
+      { // Slower, low control, low traction, big jitter
+        color: 0xff66cc,
+        baseSpeed: 210,        // slightly slower
+        turnSpeed: 0.0022,     // lazier steering
+        traction: 0.18,        // more drift / slide feel
+        jitterRange: TILE_SIZE * 0.20,
+      },
+      { // Fastest straight away, medium turn speed, low traction, tiny jitter
+        color: 0x800080,
+        baseSpeed: 240,        
+        turnSpeed: 0.00225,
+        traction: 0.18,     
+        jitterRange: TILE_SIZE * 0.05,
+      }
+    ];
   
-    for (let i = 0; i < numNPCs; i++) {
-      // Slight offset behind/around player spawn so they don't overlap
+    this.npcCars = [];
+  
+    npcConfigs.forEach((cfg, i) => {
       const offsetX = (i + 1) * -TILE_SIZE * 0.6;
       const offsetY = (i % 2 === 0 ? 1 : -1) * TILE_SIZE * 0.2;
   
@@ -83,29 +101,20 @@ export class MainScene extends Phaser.Scene {
         'car'
       );
   
-      // Tint to differentiate from player and each other
-      const colors = [0x66ccff, 0xff66cc, 0x66ff66];
-      npc.setTint(colors[i % colors.length]);
-  
+      npc.setTint(cfg.color);
       npc.setCollideWorldBounds(true);
       npc.setDamping(false);
       npc.setDrag(0, 0);
-      npc.setMaxVelocity(350, 350);
+      npc.setMaxVelocity(400, 400);
   
-      // Per-NPC "personality"
-      const baseSpeed = Phaser.Math.Between(190, 240);          // pixels/sec
-      const turnSpeed = Phaser.Math.FloatBetween(0.0020, 0.0032); // radians/ms
-      const jitterRange = TILE_SIZE * 0.25; // keep small so they don't slam walls
-      const jitterX = Phaser.Math.FloatBetween(-jitterRange, jitterRange);
-      const jitterY = Phaser.Math.FloatBetween(-jitterRange, jitterRange);
+      const jitterX = Phaser.Math.FloatBetween(-cfg.jitterRange, cfg.jitterRange);
+      const jitterY = Phaser.Math.FloatBetween(-cfg.jitterRange, cfg.jitterRange);
   
-      // Point them initially toward first waypoint
       if (npcWaypoints.length > 0) {
         const wp = npcWaypoints[0];
         npc.rotation = Phaser.Math.Angle.Between(npc.x, npc.y, wp.x, wp.y);
       }
   
-      // Collide with walls (no damage for them for now)
       this.physics.add.collider(
         npc,
         this.walls,
@@ -117,12 +126,13 @@ export class MainScene extends Phaser.Scene {
       this.npcCars.push({
         sprite: npc,
         waypointIndex: 0,
-        baseSpeed,
-        turnSpeed,
+        baseSpeed: cfg.baseSpeed,
+        turnSpeed: cfg.turnSpeed,
+        traction: cfg.traction,
         jitterX,
         jitterY,
       });
-    }
+    });
   }
 
   private createUI() {
@@ -544,7 +554,7 @@ export class MainScene extends Phaser.Scene {
   
       const wp = npcWaypoints[npcCar.waypointIndex];
   
-      // Slightly offset target so they don't all ride the exact same line
+      // Use jitter except on super-tight corners if you’ve added that logic
       const targetX = wp.x + npcCar.jitterX;
       const targetY = wp.y + npcCar.jitterY;
   
@@ -563,19 +573,28 @@ export class MainScene extends Phaser.Scene {
         npc.rotation += Math.max(angleDiff, -turnSpeed);
       }
   
-      // Move forward along facing direction at this NPC's preferred speed
+      // Desired velocity along facing
       const body = npc.body as Phaser.Physics.Arcade.Body;
+      const desired = new Phaser.Math.Vector2();
       this.physics.velocityFromRotation(
         npc.rotation,
         npcCar.baseSpeed,
-        body.velocity
+        desired
       );
   
-      // If close enough to this waypoint, go to next
+      // Current velocity
+      const current = new Phaser.Math.Vector2(body.velocity.x, body.velocity.y);
+  
+      // Traction: how quickly we move current vel toward desired vel
+      const t = Phaser.Math.Clamp(npcCar.traction, 0.05, 0.6);
+      const newVel = current.lerp(desired, t);
+  
+      body.setVelocity(newVel.x, newVel.y);
+  
+      // Waypoint reach check (you may already have the 1.1 radius tweak)
       const distSq = dx * dx + dy * dy;
-      // Slightly looser radius so they don't have to be super precise
       const reachRadius = TILE_SIZE * TILE_SIZE * 1.1;
-      
+  
       if (distSq < reachRadius) {
         npcCar.waypointIndex = (npcCar.waypointIndex + 1) % npcWaypoints.length;
       }
