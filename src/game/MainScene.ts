@@ -116,19 +116,48 @@ export class MainScene extends Phaser.Scene {
     player: Phaser.GameObjects.GameObject,
     wall: Phaser.GameObjects.GameObject
   ) {
-    const body = (this.player.body as Phaser.Physics.Arcade.Body);
+    const body = this.player.body as Phaser.Physics.Arcade.Body;
     const speed = body.velocity.length();
   
     // Ignore very soft bumps
     const impactThreshold = 80;
     if (speed < impactThreshold) return;
   
-    // Scale damage with speed
+    // --- DAMAGE (same as before) ---
     const damage = Phaser.Math.Clamp(Math.floor(speed / 40), 5, 25);
     this.applyDamage(damage);
   
-    // Small knockback: slow the car a bit
-    body.velocity.scale(0.5);
+    // --- PHYSICAL-ISH BOUNCE ---
+  
+    const wallRect = wall as Phaser.GameObjects.Rectangle;
+  
+    // Normal pointing from wall center to player (approx collision normal)
+    const normal = new Phaser.Math.Vector2(
+      this.player.x - wallRect.x,
+      this.player.y - wallRect.y
+    ).normalize();
+  
+    // Current velocity
+    const v = new Phaser.Math.Vector2(body.velocity.x, body.velocity.y);
+  
+    // Component of velocity along the normal
+    const vn = v.dot(normal);
+  
+    // Only bounce if we're moving INTO the wall (velocity toward wall)
+    // With this normal, 'into wall' gives vn < 0
+    if (vn < 0) {
+      const restitution = 0.3; // 0 = no bounce, 1 = perfect elastic
+  
+      // v' = v - (1 + e) * (v·n) * n
+      const bounce = normal.clone().scale((1 + restitution) * vn);
+      v.subtract(bounce);
+  
+      // Optionally damp overall speed a bit so you don't ping-pong forever
+      v.scale(0.9);
+    }
+  
+    // Apply the new velocity
+    body.setVelocity(v.x, v.y);
   
     // Flash red briefly
     this.player.setTint(0xff0000);
