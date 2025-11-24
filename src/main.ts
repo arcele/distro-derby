@@ -1,7 +1,5 @@
-import StartGame from './game/main';
+// src/main.ts
+import Phaser from 'phaser';
+import { GameConfig } from './game/config';
 
-document.addEventListener('DOMContentLoaded', () => {
-
-    StartGame('game-container');
-
-});
+new Phaser.Game(GameConfig);
