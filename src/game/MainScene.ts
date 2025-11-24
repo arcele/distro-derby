@@ -7,6 +7,8 @@ export class MainScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private goalZone!: Phaser.GameObjects.Rectangle;
+  private health = 100;
+  private healthText!: Phaser.GameObjects.Text;
 
   private spawnPos = { x: 0, y: 0 };
   private goalPos = { x: 0, y: 0 };
@@ -16,11 +18,10 @@ export class MainScene extends Phaser.Scene {
   }
 
   preload() {
-    // Make a simple “car” texture (yellow rectangle) so we don’t need asset files
     const g = this.make.graphics({ x: 0, y: 0, add: false });
     g.fillStyle(0xffcc00, 1);
-    g.fillRect(0, 0, 32, 18);
-    g.generateTexture('car', 32, 18);
+    g.fillRect(0, 0, 24, 14);  // smaller car sprite
+    g.generateTexture('car', 24, 14);
     g.destroy();
   }
 
@@ -30,11 +31,21 @@ export class MainScene extends Phaser.Scene {
     this.buildMap();
     this.createPlayer();
     this.createGoalZone();
+    this.createUI();
 
     this.cursors = this.input.keyboard.createCursorKeys();
 
     // Optional: turn this on in config.ts for visual debugging:
     // physics.arcade.debug = true
+  }
+
+  private createUI() {
+    this.healthText = this.add
+      .text(10, 10, 'Health: 100', {
+        fontSize: '18px',
+        color: '#ffffff',
+      })
+      .setScrollFactor(0); // stays fixed on screen
   }
 
   private buildMap() {
@@ -92,7 +103,67 @@ export class MainScene extends Phaser.Scene {
     this.player.setAngle(0);
   
     // Collide with walls
-    this.physics.add.collider(this.player, this.walls);
+    this.physics.add.collider(
+        this.player,
+        this.walls,
+        this.handleWallCollision,
+        undefined,
+        this
+      );
+  }
+
+  private handleWallCollision(
+    player: Phaser.GameObjects.GameObject,
+    wall: Phaser.GameObjects.GameObject
+  ) {
+    const body = (this.player.body as Phaser.Physics.Arcade.Body);
+    const speed = body.velocity.length();
+  
+    // Ignore very soft bumps
+    const impactThreshold = 80;
+    if (speed < impactThreshold) return;
+  
+    // Scale damage with speed
+    const damage = Phaser.Math.Clamp(Math.floor(speed / 40), 5, 25);
+    this.applyDamage(damage);
+  
+    // Small knockback: slow the car a bit
+    body.velocity.scale(0.5);
+  
+    // Flash red briefly
+    this.player.setTint(0xff0000);
+    this.time.delayedCall(120, () => {
+      this.player.clearTint();
+    });
+  }
+  
+  private applyDamage(amount: number) {
+    this.health -= amount;
+    if (this.health < 0) this.health = 0;
+    this.healthText.setText(`Health: ${this.health}`);
+  
+    if (this.health <= 0) {
+      this.handleDeathAndRespawn();
+    }
+  }
+  
+  private handleDeathAndRespawn() {
+    // Simple respawn: reset health, move back to spawn, stop motion
+    this.health = 100;
+    this.healthText.setText(`Health: ${this.health}`);
+  
+    this.player.x = this.spawnPos.x;
+    this.player.y = this.spawnPos.y;
+    this.player.rotation = 0;
+  
+    const body = this.player.body as Phaser.Physics.Arcade.Body;
+    body.setVelocity(0, 0);
+  
+    // Brief "respawn" flash
+    this.player.setTint(0x00ffff);
+    this.time.delayedCall(200, () => {
+      this.player.clearTint();
+    });
   }
 
   private createGoalZone() {
