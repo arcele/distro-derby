@@ -9,6 +9,13 @@ export class MainScene extends Phaser.Scene {
   private goalZone!: Phaser.GameObjects.Rectangle;
   private health = 100;
   private healthText!: Phaser.GameObjects.Text;
+  
+  private elapsedTime = 0;              // ms
+  private timerRunning = false;
+  private timerText!: Phaser.GameObjects.Text;
+  private hasMoved = false;             // has the car started a run yet?
+
+
 
   private spawnPos = { x: 0, y: 0 };
   private goalPos = { x: 0, y: 0 };
@@ -45,8 +52,15 @@ export class MainScene extends Phaser.Scene {
         fontSize: '18px',
         color: '#ffffff',
       })
-      .setScrollFactor(0); // stays fixed on screen
-  }
+      .setScrollFactor(0);
+  
+    this.timerText = this.add
+      .text(10, 32, 'Time: 0.00s', {
+        fontSize: '18px',
+        color: '#ffffff',
+      })
+      .setScrollFactor(0);
+  } 
 
   private buildMap() {
     const rows = level1.length;
@@ -146,7 +160,7 @@ export class MainScene extends Phaser.Scene {
     // Only bounce if we're moving INTO the wall (velocity toward wall)
     // With this normal, 'into wall' gives vn < 0
     if (vn < 0) {
-      const restitution = 0.3; // 0 = no bounce, 1 = perfect elastic
+      const restitution = 0.66; // 0 = no bounce, 1 = perfect elastic
   
       // v' = v - (1 + e) * (v·n) * n
       const bounce = normal.clone().scale((1 + restitution) * vn);
@@ -172,21 +186,35 @@ export class MainScene extends Phaser.Scene {
     this.healthText.setText(`Health: ${this.health}`);
   
     if (this.health <= 0) {
+      // End current run timer
+      if (this.timerRunning) {
+        this.timerRunning = false;
+        const seconds = (this.elapsedTime / 1000).toFixed(2);
+        console.log(`Run ended (wreck) at ${seconds}s`);
+      }
+  
       this.handleDeathAndRespawn();
     }
   }
   
   private handleDeathAndRespawn() {
-    // Simple respawn: reset health, move back to spawn, stop motion
+    // Reset health
     this.health = 100;
     this.healthText.setText(`Health: ${this.health}`);
   
+    // Reset position
     this.player.x = this.spawnPos.x;
     this.player.y = this.spawnPos.y;
     this.player.rotation = 0;
   
     const body = this.player.body as Phaser.Physics.Arcade.Body;
     body.setVelocity(0, 0);
+  
+    // Reset timer for the next run
+    this.elapsedTime = 0;
+    this.timerRunning = false;
+    this.hasMoved = false;
+    this.timerText.setText('Time: 0.00s');
   
     // Brief "respawn" flash
     this.player.setTint(0x00ffff);
@@ -209,17 +237,26 @@ export class MainScene extends Phaser.Scene {
     this.physics.add.existing(this.goalZone, true);
 
     this.physics.add.overlap(
-      this.player,
-      this.goalZone,
-      () => {
-        // For now, just log + flash tint
-        console.log('Reached GOAL!');
-        this.player.setTint(0x00ff00);
-        this.time.delayedCall(300, () => this.player.clearTint());
-      },
-      undefined,
-      this
-    );
+        this.player,
+        this.goalZone,
+        this.handleGoalReached,
+        undefined,
+        this
+      );
+  }
+
+  private handleGoalReached() {
+    if (this.timerRunning) {
+      this.timerRunning = false;
+  
+      const seconds = (this.elapsedTime / 1000).toFixed(2);
+      console.log(`Finished in ${seconds}s`);
+  
+      this.player.setTint(0x00ff00);
+      this.time.delayedCall(300, () => {
+        this.player.clearTint();
+      });
+    }
   }
 
   update(time: number, delta: number) {
@@ -284,5 +321,20 @@ export class MainScene extends Phaser.Scene {
       speed,
       body.velocity
     );
+
+    // 6) Start timer the first time the player attempts to move this run
+    if (
+        !this.hasMoved &&
+        (this.cursors.up?.isDown || this.cursors.down?.isDown)
+    ) {
+        this.hasMoved = true;
+        this.timerRunning = true;
+    }
+    // Update timer
+    if (this.timerRunning) {
+        this.elapsedTime += delta; // delta is in ms
+        const seconds = (this.elapsedTime / 1000).toFixed(2);
+        this.timerText.setText(`Time: ${seconds}s`);
+    }
   }
 }
