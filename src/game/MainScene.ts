@@ -14,6 +14,7 @@ interface NPCCar {
     jitterY: number;
     finished: boolean;
     finishTime: number | null; // ms in this run
+    dnf: boolean;
 
     health: number;
     maxHealth: number;
@@ -41,8 +42,6 @@ export class MainScene extends Phaser.Scene {
 
   private spawnPos = { x: 0, y: 0 };
   private goalPos = { x: 0, y: 0 };
-
-  private npcCars: NPCCar[] = [];
 
   private playerFinishTime: number | null = null;
   private isRaceOver = false;
@@ -156,6 +155,7 @@ export class MainScene extends Phaser.Scene {
         health: 100,
         maxHealth: 100,
         baseColor: cfg.color,
+        dnf: false
     });
     });
   }
@@ -555,6 +555,8 @@ export class MainScene extends Phaser.Scene {
       npcCar.finished = false;
       npcCar.finishTime = null;
       npcCar.health = npcCar.maxHealth;
+      npcCar.dnf = false;
+      npc.setTint(npcCar.baseColor);
 
       if (npcWaypoints.length > 0) {
         const wp = npcWaypoints[0];
