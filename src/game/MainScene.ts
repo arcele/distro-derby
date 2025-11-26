@@ -72,7 +72,7 @@ export class MainScene extends Phaser.Scene {
     this.walls = this.physics.add.staticGroup();
   
     this.buildMap();
-          this.drawWaypointDebug();  // Uncomment this line to show waypoint spots for debugging NPC driving path
+    //      this.drawWaypointDebug();  // Uncomment this line to show waypoint spots for debugging NPC driving path
     this.createPlayer();
     this.createNPCs();
     this.createGoalZone();
@@ -948,44 +948,114 @@ this.time.delayedCall(120, () => {
   private updateRacerHUD() {
     if (this.racerHUDRows.length === 0) return;
   
-    let rowIndex = 0;
+    type RacerState = {
+      label: string;
+      health: number;
+      finished: boolean;
+      dnf: boolean;
+      time: number;      // finish time if finished, Infinity otherwise
+      isPlayer: boolean;
+    };
   
-    // --- Player row ---
-    const playerRow = this.racerHUDRows[rowIndex++];
-    playerRow.label.setText('You');
-    playerRow.health.setText(`HP: ${this.health}`);
+    const racers: RacerState[] = [];
   
-    let playerStatus: string;
-    if (this.playerFinishTime !== null) {
-      playerStatus = `${(this.playerFinishTime / 1000).toFixed(2)}s`;
-    } else if (this.playerDNF || this.health <= 0) {
-      playerStatus = 'DNF';
-    } else if (this.timerRunning || this.hasMoved) {
-      playerStatus = 'Racing';
-    } else {
-      playerStatus = 'Ready';
-    }
-    playerRow.status.setText(playerStatus);
+    // --- Player state ---
+    const playerFinished = this.playerFinishTime !== null;
+    const playerDNF = this.playerDNF || this.health <= 0;
   
-    // --- NPC rows ---
+    racers.push({
+      label: 'You',
+      health: this.health,
+      finished: playerFinished,
+      dnf: playerDNF,
+      time: playerFinished && this.playerFinishTime !== null
+        ? this.playerFinishTime
+        : Infinity,
+      isPlayer: true,
+    });
+  
+    // --- NPC states ---
     for (const npcCar of this.npcCars) {
-      const row = this.racerHUDRows[rowIndex++];
-      if (!row) break; // safety
+      const finished = npcCar.finished && npcCar.finishTime !== null;
+      const dnf = npcCar.dnf || npcCar.health <= 0;
   
-      row.label.setText(npcCar.name);
-      row.health.setText(`HP: ${npcCar.health}`);
+      racers.push({
+        label: npcCar.name,
+        health: npcCar.health,
+        finished,
+        dnf,
+        time: finished && npcCar.finishTime !== null
+          ? npcCar.finishTime
+          : Infinity,
+        isPlayer: false,
+      });
+    }
   
-      let status: string;
-      if (npcCar.finished && npcCar.finishTime !== null) {
-        status = `${(npcCar.finishTime / 1000).toFixed(2)}s`;
-      } else if (npcCar.dnf || npcCar.health <= 0) {
-        status = 'DNF';
-      } else if (this.hasMoved) {
-        status = 'Racing';
-      } else {
-        status = 'Ready';
+    // --- Live sorting / "scoring" ---
+    // 1) Finished (by time)
+    // 2) Still racing / ready
+    // 3) DNF / wrecked
+    racers.sort((a, b) => {
+      // DNF last
+      if (a.dnf && !b.dnf) return 1;
+      if (!a.dnf && b.dnf) return -1;
+  
+      // Finished earlier beats finished later
+      if (a.finished && b.finished) return a.time - b.time;
+      if (a.finished && !b.finished) return -1;
+      if (!a.finished && b.finished) return 1;
+  
+      // Both not finished and not DNF: keep relative order (stable-ish)
+      return 0;
+    });
+  
+    // --- Render into rows ---
+    const totalRows = this.racerHUDRows.length;
+    for (let i = 0; i < totalRows; i++) {
+      const row = this.racerHUDRows[i];
+      const racer = racers[i];
+  
+      if (!row || !racer) {
+        // Clear any extra rows if present
+        if (row) {
+          row.label.setText('');
+          row.health.setText('');
+          row.status.setText('');
+        }
+        continue;
       }
-      row.status.setText(status);
+  
+      row.label.setText(racer.label);
+      row.health.setText(`HP: ${racer.health}`);
+  
+      // Status text
+      let statusText: string;
+      if (racer.finished && racer.time !== Infinity) {
+        statusText = `${(racer.time / 1000).toFixed(2)}s`;
+      } else if (racer.dnf) {
+        statusText = 'DNF';
+      } else if (this.hasMoved) {
+        statusText = 'Racing';
+      } else {
+        statusText = 'Ready';
+      }
+      row.status.setText(statusText);
+  
+      // --- Coloring ---
+      // default: white
+      let color = '#ffffff';
+  
+      if (racer.dnf || racer.health <= 0) {
+        // wrecked / DNF in red
+        color = '#ff5555';
+      } else if (racer.finished) {
+        // optional: soft green for finishers
+        color = '#88ff88';
+      }
+  
+      row.label.setColor(color);
+      row.health.setColor(color);
+      row.status.setColor(color);
     }
   }
 }
