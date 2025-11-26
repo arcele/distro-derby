@@ -17,6 +17,7 @@ interface NPCCar {
 
     health: number;
     maxHealth: number;
+    baseColor: number;
 }
 
 export class MainScene extends Phaser.Scene {
@@ -153,7 +154,8 @@ export class MainScene extends Phaser.Scene {
         finished: false,
         finishTime: null,
         health: 100,
-        maxHealth: 100
+        maxHealth: 100,
+        baseColor: cfg.color,
     });
     });
   }
@@ -364,6 +366,9 @@ export class MainScene extends Phaser.Scene {
   }
 
   private applyDamage(amount: number) {
+    if(amount <= 0) return;
+    // Tiny damage effect on the player car
+    this.showDamageEffect(this.player, { isPlayer: true });
     this.health -= amount;
     if (this.health < 0) this.health = 0;
     this.healthText.setText(`Health: ${this.health}`);
@@ -391,8 +396,10 @@ export class MainScene extends Phaser.Scene {
     }
   }
   private applyNPCDamage(npcCar: NPCCar, amount: number) {
+    if(amount <= 0) return;
     if (npcCar.finished || npcCar.dnf) return;
-  
+    this.showDamageEffect(npcCar.sprite, { isPlayer: false });
+
     npcCar.health -= amount;
     if (npcCar.health <= 0) {
       npcCar.health = 0;
@@ -835,5 +842,52 @@ export class MainScene extends Phaser.Scene {
   
     this.resultsText.setDepth(bg.depth + 1);
   }
+
+  private showDamageEffect(
+    sprite: Phaser.GameObjects.Sprite,
+    opts: { isPlayer?: boolean } = {}
+  ) {
+    const { isPlayer = false } = opts;
   
+    // Determine the correct base color to restore after flash
+    let restoreColor: number | null = null;
+
+    // Player uses no tint normally
+    if (opts.isPlayer) {
+      restoreColor = null; // means clearTint()
+    } else {
+    // Find NPC and get its base color
+    const npcCar = this.npcCars.find(c => c.sprite === sprite);
+    if (npcCar) restoreColor = npcCar.baseColor;
+}
+
+sprite.setTint(0xff5555);
+
+this.time.delayedCall(120, () => {
+  if (restoreColor === null) {
+    sprite.clearTint();
+  } else {
+    sprite.setTint(restoreColor);
+  }
+});
+  
+    // Tiny "spark" puff
+    const spark = this.add.rectangle(sprite.x, sprite.y, 6, 6, 0xffff66, 1);
+    spark.setDepth(sprite.depth + 1);
+  
+    this.tweens.add({
+      targets: spark,
+      scaleX: 2,
+      scaleY: 2,
+      alpha: 0,
+      duration: 160,
+      ease: 'quad.out',
+      onComplete: () => spark.destroy(),
+    });
+  
+    // Very light camera shake for the player only
+    if (isPlayer) {
+      this.cameras.main.shake(100, 0.002); // 100ms, very tiny amplitude
+    }
+  }
 }
