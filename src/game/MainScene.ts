@@ -14,7 +14,10 @@ interface NPCCar {
     jitterY: number;
     finished: boolean;
     finishTime: number | null; // ms in this run
-  }
+
+    health: number;
+    maxHealth: number;
+}
 
 export class MainScene extends Phaser.Scene {
   private walls!: Phaser.Physics.Arcade.StaticGroup;
@@ -62,7 +65,7 @@ export class MainScene extends Phaser.Scene {
     this.walls = this.physics.add.staticGroup();
   
     this.buildMap();
-        this.drawWaypointDebug();  // Uncomment this line to show waypoint spots for debugging NPC driving path
+    //      this.drawWaypointDebug();  // Uncomment this line to show waypoint spots for debugging NPC driving path
     this.createPlayer();
     this.createNPCs();
     this.createGoalZone();
@@ -120,6 +123,7 @@ export class MainScene extends Phaser.Scene {
     npc.setDamping(false);
     npc.setDrag(0, 0);
     npc.setMaxVelocity(400, 400);
+    npc.setScale(0.7);
 
     const jitterX = Phaser.Math.FloatBetween(-cfg.jitterRange, cfg.jitterRange);
     const jitterY = Phaser.Math.FloatBetween(-cfg.jitterRange, cfg.jitterRange);
@@ -148,6 +152,8 @@ export class MainScene extends Phaser.Scene {
         jitterY,
         finished: false,
         finishTime: null,
+        health: 100,
+        maxHealth: 100
     });
     });
   }
@@ -228,6 +234,8 @@ export class MainScene extends Phaser.Scene {
   
     // Point the car to the right to start
     this.player.setAngle(0);
+
+    this.player.setScale(0.7);
   
     // Collide with walls
     this.physics.add.collider(
@@ -314,9 +322,8 @@ export class MainScene extends Phaser.Scene {
     const body = npc.body as Phaser.Physics.Arcade.Body;
     const speed = body.velocity.length();
   
-    // Find this NPC's data
     const npcCar = this.npcCars.find(c => c.sprite === npc);
-    if (!npcCar) return;
+    if (!npcCar || npcCar.finished || npcCar.dnf) return;
   
     const wallRect = wallGO as Phaser.GameObjects.Rectangle;
   
@@ -332,24 +339,28 @@ export class MainScene extends Phaser.Scene {
     // Component of velocity along the normal
     const vn = v.dot(normal);
   
-    // If vn < 0, we're moving into the wall along this normal
+    // Soft physical-ish bounce
     if (vn < 0) {
-      const restitution = 0.1; // very low bounce, mostly just a nudge
+      const restitution = 0.1; // low bounce
   
-      // Reflect only the normal component (softly)
       const bounce = normal.clone().scale((1 + restitution) * vn);
       v.subtract(bounce);
   
-      // Lose a bit of energy
       v.scale(0.92);
   
-      // Don't let them exceed their preferred speed
       if (v.length() > npcCar.baseSpeed) {
         v.normalize().scale(npcCar.baseSpeed);
       }
     }
   
     body.setVelocity(v.x, v.y);
+  
+    // --- DAMAGE based on impact speed ---
+    const impactThreshold = 80;
+    if (speed >= impactThreshold) {
+      const damage = Phaser.Math.Clamp(Math.floor(speed / 40), 5, 20);
+      this.applyNPCDamage(npcCar, damage);
+    }
   }
 
   private applyDamage(amount: number) {
@@ -377,6 +388,22 @@ export class MainScene extends Phaser.Scene {
       // Do NOT end race or show results yet; NPCs keep racing.
       // We'll show results once all NPCs have finished:
       this.tryShowRaceResults();
+    }
+  }
+  private applyNPCDamage(npcCar: NPCCar, amount: number) {
+    if (npcCar.finished || npcCar.dnf) return;
+  
+    npcCar.health -= amount;
+    if (npcCar.health <= 0) {
+      npcCar.health = 0;
+      npcCar.dnf = true;
+  
+      const npc = npcCar.sprite;
+      const body = npc.body as Phaser.Physics.Arcade.Body;
+      body.setVelocity(0, 0);
+      npc.setTint(0x880000); // subtle “wrecked” tint
+  
+      console.log(`${npcCar.name} wrecked (DNF).`);
     }
   }
   
@@ -461,7 +488,7 @@ export class MainScene extends Phaser.Scene {
   ) {
     const npc = npcGO as Phaser.Physics.Arcade.Sprite;
     const npcCar = this.npcCars.find(c => c.sprite === npc);
-    if (!npcCar) return;
+    if (!npcCar || npcCar.dnf) return;
   
     if (!npcCar.finished) {
       npcCar.finished = true;
@@ -471,7 +498,6 @@ export class MainScene extends Phaser.Scene {
       );
     }
   
-    // Check if now everyone is done (player finished or DNF + all NPCs)
     this.tryShowRaceResults();
   }
 
@@ -521,7 +547,8 @@ export class MainScene extends Phaser.Scene {
       npcCar.waypointIndex = 0;
       npcCar.finished = false;
       npcCar.finishTime = null;
-  
+      npcCar.health = npcCar.maxHealth;
+
       if (npcWaypoints.length > 0) {
         const wp = npcWaypoints[0];
         npc.rotation = Phaser.Math.Angle.Between(npc.x, npc.y, wp.x, wp.y);
@@ -625,6 +652,7 @@ export class MainScene extends Phaser.Scene {
     }
   }
   private updateNPCs(delta: number) {
+
     // Once race is fully over and results shown, freeze NPCs
     if (this.isRaceOver) {
         for (const npcCar of this.npcCars) {
@@ -646,6 +674,11 @@ export class MainScene extends Phaser.Scene {
     if (npcWaypoints.length === 0) return;
   
     for (const npcCar of this.npcCars) {
+      if (npcCar.finished || npcCar.dnf) {
+        const body = npcCar.sprite.body as Phaser.Physics.Arcade.Body;
+        body.setVelocity(0, 0);
+        continue;
+      }
       const npc = npcCar.sprite;
   
       const wp = npcWaypoints[npcCar.waypointIndex];
@@ -700,17 +733,17 @@ export class MainScene extends Phaser.Scene {
     if (this.isRaceOver) return;
   
     const playerFinished = this.playerFinishTime !== null;
-    const allNPCFinished = this.npcCars.every(c => c.finished);
+    const allNPCDone = this.npcCars.every(c => c.finished || c.dnf);
   
-    // Case A: you finished, wait for all NPCs
-    if (playerFinished && allNPCFinished) {
+    // Case A: you finished, wait for all NPCs to be done (finish or DNF)
+    if (playerFinished && allNPCDone) {
       this.isRaceOver = true;
       this.showRaceResults();
       return;
     }
   
-    // Case B: you DNF'd (wrecked), wait for all NPCs
-    if (this.playerDNF && allNPCFinished) {
+    // Case B: you DNF, wait for all NPCs to be done
+    if (this.playerDNF && allNPCDone) {
       this.isRaceOver = true;
       this.showRaceResults();
     }
@@ -735,20 +768,28 @@ export class MainScene extends Phaser.Scene {
   
     // NPCs
     for (const npcCar of this.npcCars) {
-      if (npcCar.finished && npcCar.finishTime !== null) {
-        racers.push({
-          label: npcCar.name,
-          finished: true,
-          time: npcCar.finishTime,
-        });
-      } else {
-        racers.push({
-          label: npcCar.name,
-          finished: false,
-          time: Infinity,
-        });
+        if (npcCar.finished && npcCar.finishTime !== null) {
+          racers.push({
+            label: npcCar.name,
+            finished: true,
+            time: npcCar.finishTime,
+          });
+        } else if (npcCar.dnf) {
+          racers.push({
+            label: npcCar.name,
+            finished: false,
+            time: Infinity, // will sort after finishers
+          });
+        } else {
+          // This shouldn't really happen once we call showRaceResults(),
+          // but just in case, treat as DNF.
+          racers.push({
+            label: npcCar.name,
+            finished: false,
+            time: Infinity,
+          });
+        }
       }
-    }
   
     // Sort: finished first, by time; then DNFs
     racers.sort((a, b) => {
@@ -794,4 +835,5 @@ export class MainScene extends Phaser.Scene {
   
     this.resultsText.setDepth(bg.depth + 1);
   }
+  
 }
