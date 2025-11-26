@@ -21,6 +21,7 @@ interface NPCCar {
     baseColor: number;
 }
 
+
 export class MainScene extends Phaser.Scene {
   private walls!: Phaser.Physics.Arcade.StaticGroup;
   private player!: Phaser.Physics.Arcade.Sprite;
@@ -49,6 +50,12 @@ export class MainScene extends Phaser.Scene {
 
   private playerDNF = false;
 
+  private racerHUDRows: {
+    label: Phaser.GameObjects.Text;
+    health: Phaser.GameObjects.Text;
+    status: Phaser.GameObjects.Text;
+  }[] = [];
+
   constructor() {
     super('MainScene');
   }
@@ -65,11 +72,12 @@ export class MainScene extends Phaser.Scene {
     this.walls = this.physics.add.staticGroup();
   
     this.buildMap();
-    //      this.drawWaypointDebug();  // Uncomment this line to show waypoint spots for debugging NPC driving path
+          this.drawWaypointDebug();  // Uncomment this line to show waypoint spots for debugging NPC driving path
     this.createPlayer();
     this.createNPCs();
     this.createGoalZone();
     this.createUI();
+    this.createRacerHUD();
   
     this.cursors = this.input.keyboard.createCursorKeys();
     this.restartKey = this.input.keyboard.addKey(
@@ -390,6 +398,8 @@ export class MainScene extends Phaser.Scene {
       body.setVelocity(0, 0);
       this.player.setTint(0xff0000);
   
+      this.updateRacerHUD();
+
       // Do NOT end race or show results yet; NPCs keep racing.
       // We'll show results once all NPCs have finished:
       this.tryShowRaceResults();
@@ -409,7 +419,7 @@ export class MainScene extends Phaser.Scene {
       const body = npc.body as Phaser.Physics.Arcade.Body;
       body.setVelocity(0, 0);
       npc.setTint(0x880000); // subtle “wrecked” tint
-  
+      this.updateRacerHUD();
       console.log(`${npcCar.name} wrecked (DNF).`);
     }
   }
@@ -484,7 +494,7 @@ export class MainScene extends Phaser.Scene {
     this.time.delayedCall(300, () => {
       this.player.clearTint();
     });
-  
+    this.updateRacerHUD();  
     // Now see if we can show results (will only show if all NPCs also done)
     this.tryShowRaceResults();
   }
@@ -504,7 +514,7 @@ export class MainScene extends Phaser.Scene {
         `${npcCar.name} finished at ${(this.elapsedTime / 1000).toFixed(2)}s`
       );
     }
-  
+    this.updateRacerHUD();
     this.tryShowRaceResults();
   }
 
@@ -565,6 +575,7 @@ export class MainScene extends Phaser.Scene {
         npc.rotation = 0;
       }
     });
+    this.updateRacerHUD();
   }
 
   update(time: number, delta: number) {
@@ -659,6 +670,7 @@ export class MainScene extends Phaser.Scene {
         const seconds = (this.elapsedTime / 1000).toFixed(2);
         this.timerText.setText(`Time: ${seconds}s`);
     }
+    this.updateRacerHUD();
   }
   private updateNPCs(delta: number) {
 
@@ -890,6 +902,90 @@ this.time.delayedCall(120, () => {
     // Very light camera shake for the player only
     if (isPlayer) {
       this.cameras.main.shake(100, 0.002); // 100ms, very tiny amplitude
+    }
+  }
+
+  private createRacerHUD() {
+    // Clear any existing rows (just in case)
+    this.racerHUDRows.forEach(row => {
+      row.label.destroy();
+      row.health.destroy();
+      row.status.destroy();
+    });
+    this.racerHUDRows = [];
+  
+    const startX = this.scale.width - 260; // right side
+    const startY = 10;
+    const rowHeight = 20;
+  
+    const style: Phaser.Types.GameObjects.Text.TextStyle = {
+      fontSize: '14px',
+      color: '#ffffff',
+    };
+  
+    const totalRows = 1 + this.npcCars.length; // player + all NPCs
+  
+    for (let i = 0; i < totalRows; i++) {
+      const y = startY + i * rowHeight;
+  
+      const label = this.add
+        .text(startX, y, '', style)
+        .setScrollFactor(0);
+  
+      const health = this.add
+        .text(startX + 90, y, '', style)
+        .setScrollFactor(0);
+  
+      const status = this.add
+        .text(startX + 170, y, '', style)
+        .setScrollFactor(0);
+  
+      this.racerHUDRows.push({ label, health, status });
+    }
+  
+    this.updateRacerHUD(); // initialize contents
+  }
+  private updateRacerHUD() {
+    if (this.racerHUDRows.length === 0) return;
+  
+    let rowIndex = 0;
+  
+    // --- Player row ---
+    const playerRow = this.racerHUDRows[rowIndex++];
+    playerRow.label.setText('You');
+    playerRow.health.setText(`HP: ${this.health}`);
+  
+    let playerStatus: string;
+    if (this.playerFinishTime !== null) {
+      playerStatus = `${(this.playerFinishTime / 1000).toFixed(2)}s`;
+    } else if (this.playerDNF || this.health <= 0) {
+      playerStatus = 'DNF';
+    } else if (this.timerRunning || this.hasMoved) {
+      playerStatus = 'Racing';
+    } else {
+      playerStatus = 'Ready';
+    }
+    playerRow.status.setText(playerStatus);
+  
+    // --- NPC rows ---
+    for (const npcCar of this.npcCars) {
+      const row = this.racerHUDRows[rowIndex++];
+      if (!row) break; // safety
+  
+      row.label.setText(npcCar.name);
+      row.health.setText(`HP: ${npcCar.health}`);
+  
+      let status: string;
+      if (npcCar.finished && npcCar.finishTime !== null) {
+        status = `${(npcCar.finishTime / 1000).toFixed(2)}s`;
+      } else if (npcCar.dnf || npcCar.health <= 0) {
+        status = 'DNF';
+      } else if (this.hasMoved) {
+        status = 'Racing';
+      } else {
+        status = 'Ready';
+      }
+      row.status.setText(status);
     }
   }
 }
