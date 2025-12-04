@@ -68,8 +68,9 @@ export class MainScene extends Phaser.Scene {
   }
 
   create() {
+    this.cameras.main.roundPixels = true;
+    this.cameras.main.setBackgroundColor('#ff00ff');
     this.walls = this.physics.add.staticGroup();
-
     this.buildMap();
     //      this.drawWaypointDebug();  // Uncomment this line to show waypoint spots for debugging NPC driving path
     this.createPlayer();
@@ -195,34 +196,125 @@ export class MainScene extends Phaser.Scene {
         const worldX = x * TILE_SIZE + TILE_SIZE / 2;
         const worldY = y * TILE_SIZE + TILE_SIZE / 2;
 
+        // 🔹 Walls: solid blocks
         if (tile === TileType.Wall) {
-          // Draw wall + give it a static physics body
           const wallRect = this.add
             .rectangle(worldX, worldY, TILE_SIZE, TILE_SIZE, 0x333333)
             .setStrokeStyle(2, 0x777777);
 
-          this.physics.add.existing(wallRect, true); // true = static body
+          this.physics.add.existing(wallRect, true);
           this.walls.add(wallRect);
-        } else {
-          // Draw floor / special tiles
-          let fill = 0x1e1e1e;
-
-          if (tile === TileType.Spawn) {
-            fill = 0x003366;
-            this.spawnPos.x = worldX;
-            this.spawnPos.y = worldY;
-          } else if (tile === TileType.Goal) {
-            fill = 0x336600;
-            this.goalPos.x = worldX;
-            this.goalPos.y = worldY;
-          }
-
-          this.add
-            .rectangle(worldX, worldY, TILE_SIZE, TILE_SIZE, fill)
-            .setStrokeStyle(1, 0x2e2e2e);
+          continue;
         }
+
+        // 🔹 Corner tiles: handled entirely by createCornerTile
+        if (
+          tile === TileType.CornerTL ||
+          tile === TileType.CornerTR ||
+          tile === TileType.CornerBR ||
+          tile === TileType.CornerBL
+        ) {
+          this.createCornerTile(tile, worldX, worldY);
+          continue;
+        }
+
+        // 🔹 Everything else: floor / spawn / goal
+        let fill = 0x1e1e1e;
+
+        if (tile === TileType.Spawn) {
+          fill = 0x003366;
+          this.spawnPos.x = worldX;
+          this.spawnPos.y = worldY;
+        } else if (tile === TileType.Goal) {
+          fill = 0x336600;
+          this.goalPos.x = worldX;
+          this.goalPos.y = worldY;
+        }
+
+        this.add.rectangle(worldX, worldY, TILE_SIZE, TILE_SIZE, fill).setStrokeStyle(1, 0x2e2e2e);
       }
     }
+  }
+
+  private createCornerTile(tile: TileType, worldX: number, worldY: number) {
+    const left = worldX - TILE_SIZE / 2;
+    const top = worldY - TILE_SIZE / 2;
+
+    //
+    // 1. FLOOR underlay via Graphics (no stroke possible)
+    //
+    const floorGfx = this.add.graphics();
+    floorGfx.fillStyle(0x1e1e1e, 1);
+    floorGfx.fillRect(left, top, TILE_SIZE, TILE_SIZE);
+
+    //
+    // 2. Define triangle vertices (0..TILE_SIZE space)
+    //
+    let x1!: number, y1!: number;
+    let x2!: number, y2!: number;
+    let x3!: number, y3!: number;
+
+    switch (tile) {
+      case TileType.CornerTL:
+        x1 = 0;
+        y1 = 0;
+        x2 = TILE_SIZE;
+        y2 = 0;
+        x3 = 0;
+        y3 = TILE_SIZE;
+        break;
+
+      case TileType.CornerTR:
+        x1 = 0;
+        y1 = 0;
+        x2 = TILE_SIZE;
+        y2 = 0;
+        x3 = TILE_SIZE;
+        y3 = TILE_SIZE;
+        break;
+
+      case TileType.CornerBR:
+        x1 = TILE_SIZE;
+        y1 = TILE_SIZE;
+        x2 = TILE_SIZE;
+        y2 = 0;
+        x3 = 0;
+        y3 = TILE_SIZE;
+        break;
+
+      case TileType.CornerBL:
+        x1 = 0;
+        y1 = 0;
+        x2 = 0;
+        y2 = TILE_SIZE;
+        x3 = TILE_SIZE;
+        y3 = TILE_SIZE;
+        break;
+
+      default:
+        return;
+    }
+
+    //
+    // 3. Wall triangle on top (this is the only thing with a stroke)
+    //
+    const tri = this.add
+      .triangle(
+        left,
+        top,
+        x1,
+        y1,
+        x2,
+        y2,
+        x3,
+        y3,
+        0x333333, // wall color
+      )
+      .setStrokeStyle(2, 0x777777)
+      .setOrigin(0, 0);
+
+    this.physics.add.existing(tri, true);
+    this.walls.add(tri);
   }
 
   private createPlayer() {
@@ -369,7 +461,6 @@ export class MainScene extends Phaser.Scene {
     if (this.health <= 0) {
       // End timer if it was running
       if (this.timerRunning) {
-        console.log('!! SETTING this.timerRunning to false 3');
         this.timerRunning = false;
         const seconds = (this.elapsedTime / 1000).toFixed(2);
         console.log(`Run ended (wreck) at ${seconds}s`);
