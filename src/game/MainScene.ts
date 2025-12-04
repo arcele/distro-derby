@@ -48,6 +48,7 @@ export class MainScene extends Phaser.Scene {
   private resultsText?: Phaser.GameObjects.Text;
 
   private resultsBg?: Phaser.GameObjects.Rectangle;
+  private resultsDimmer?: Phaser.GameObjects.Rectangle;
 
   private playerDNF = false;
 
@@ -640,6 +641,10 @@ export class MainScene extends Phaser.Scene {
       this.resultsBg.destroy();
       this.resultsBg = undefined;
     }
+    if (this.resultsDimmer) {
+      this.resultsDimmer.destroy();
+      this.resultsDimmer = undefined;
+    }
 
     // NPCs reset (positions, velocities, finished flags, etc.)
     this.npcCars.forEach((npcCar, i) => {
@@ -917,6 +922,9 @@ export class MainScene extends Phaser.Scene {
       }
     });
 
+    // 👇 extra “Press R” hint
+    text += '\nPress R to race again';
+
     // 🔹 Clean up any previous UI
     if (this.resultsText) {
       this.resultsText.destroy();
@@ -926,9 +934,21 @@ export class MainScene extends Phaser.Scene {
       this.resultsBg.destroy();
       this.resultsBg = undefined;
     }
+    if (this.resultsDimmer) {
+      this.resultsDimmer.destroy();
+      this.resultsDimmer = undefined;
+    }
 
     const centerX = this.scale.width / 2;
     const centerY = this.scale.height / 2;
+
+    // 🔹 Full-screen dimmer (modal style)
+    this.resultsDimmer = this.add
+      .rectangle(centerX, centerY, this.scale.width, this.scale.height, 0x000000, 0.5)
+      .setScrollFactor(0);
+
+    // start invisible so we can fade it in
+    this.resultsDimmer.setAlpha(0);
 
     // 🔹 Create text first to get size
     this.resultsText = this.add
@@ -950,15 +970,38 @@ export class MainScene extends Phaser.Scene {
         this.resultsText.width + padding * 2,
         this.resultsText.height + padding * 2,
         0x333333, // same as wall fill
-        1, // fully opaque
+        1,
       )
       .setStrokeStyle(2, 0x777777) // same as wall border
       .setScrollFactor(0);
 
-    // 🔹 Put them ABOVE the track & HUD
-    const baseDepth = 1000;
-    this.resultsBg.setDepth(baseDepth);
-    this.resultsText.setDepth(baseDepth + 1);
+    // Ensure layering order: dimmer < bg < text
+    this.resultsDimmer.setDepth(10);
+    this.resultsBg.setDepth(11);
+    this.resultsText.setDepth(12);
+
+    // 🔹 Pop-in animation for bg + text
+    this.resultsBg.setScale(0.8);
+    this.resultsText.setScale(0.8);
+    this.resultsBg.setAlpha(0);
+    this.resultsText.setAlpha(0);
+
+    this.tweens.add({
+      targets: [this.resultsBg, this.resultsText],
+      scaleX: 1,
+      scaleY: 1,
+      alpha: 1,
+      duration: 220,
+      ease: 'Back.Out',
+    });
+
+    // 🔹 Fade in dimmer separately
+    this.tweens.add({
+      targets: this.resultsDimmer,
+      alpha: 0.5,
+      duration: 200,
+      ease: 'Quad.Out',
+    });
   }
 
   private showDamageEffect(sprite: Phaser.GameObjects.Sprite, opts: { isPlayer?: boolean } = {}) {
