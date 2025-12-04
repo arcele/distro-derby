@@ -3,24 +3,23 @@ import Phaser from 'phaser';
 import { level1, TILE_SIZE, TileType, npcWaypoints } from './level1';
 
 interface NPCCar {
-    sprite: Phaser.Physics.Arcade.Sprite;
-    waypointIndex: number;
-  
-    name: string;
-    baseSpeed: number;   // preferred straight-line speed
-    turnSpeed: number;   // how fast they can steer (radians/ms)
-    traction: number;    // 0–1: how quickly velocity aligns with heading
-    jitterX: number;     // offset from waypoint center
-    jitterY: number;
-    finished: boolean;
-    finishTime: number | null; // ms in this run
-    dnf: boolean;
+  sprite: Phaser.Physics.Arcade.Sprite;
+  waypointIndex: number;
 
-    health: number;
-    maxHealth: number;
-    baseColor: number;
+  name: string;
+  baseSpeed: number; // preferred straight-line speed
+  turnSpeed: number; // how fast they can steer (radians/ms)
+  traction: number; // 0–1: how quickly velocity aligns with heading
+  jitterX: number; // offset from waypoint center
+  jitterY: number;
+  finished: boolean;
+  finishTime: number | null; // ms in this run
+  dnf: boolean;
+
+  health: number;
+  maxHealth: number;
+  baseColor: number;
 }
-
 
 export class MainScene extends Phaser.Scene {
   private walls!: Phaser.Physics.Arcade.StaticGroup;
@@ -29,17 +28,17 @@ export class MainScene extends Phaser.Scene {
   private goalZone!: Phaser.GameObjects.Rectangle;
   private health = 100;
   private healthText!: Phaser.GameObjects.Text;
-  
-  private elapsedTime = 0;              // ms
+
+  private elapsedTime = 0; // ms
   private timerRunning = false;
   private timerText!: Phaser.GameObjects.Text;
   private hasMoved = false;
-  
+
   private bestTime: number | null = null;
   private bestTimeText!: Phaser.GameObjects.Text;
-  
+
   private restartKey!: Phaser.Input.Keyboard.Key;
-  private npcCars: NPCCar[] = []; 
+  private npcCars: NPCCar[] = [];
 
   private spawnPos = { x: 0, y: 0 };
   private goalPos = { x: 0, y: 0 };
@@ -63,14 +62,14 @@ export class MainScene extends Phaser.Scene {
   preload() {
     const g = this.make.graphics({ x: 0, y: 0, add: false });
     g.fillStyle(0xffcc00, 1);
-    g.fillRect(0, 0, 24, 14);  // smaller car sprite
+    g.fillRect(0, 0, 24, 14); // smaller car sprite
     g.generateTexture('car', 24, 14);
     g.destroy();
   }
 
   create() {
     this.walls = this.physics.add.staticGroup();
-  
+
     this.buildMap();
     //      this.drawWaypointDebug();  // Uncomment this line to show waypoint spots for debugging NPC driving path
     this.createPlayer();
@@ -78,78 +77,73 @@ export class MainScene extends Phaser.Scene {
     this.createGoalZone();
     this.createUI();
     this.createRacerHUD();
-  
+
     this.cursors = this.input.keyboard.createCursorKeys();
-    this.restartKey = this.input.keyboard.addKey(
-      Phaser.Input.Keyboard.KeyCodes.R
-    );
+    this.restartKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R);
   }
-  
+
   private createNPCs() {
     // You can tweak or add more entries here
     const npcConfigs = [
-      { // Quick, high control, high traction
+      {
+        // Quick, high control, high traction
         name: 'Blue Pro',
         color: 0x66ccff,
-        baseSpeed: 230,        // pretty quick
-        turnSpeed: 0.0030,     // steers well
-        traction: 0.35,        // snaps to line fairly quickly
+        baseSpeed: 230, // pretty quick
+        turnSpeed: 0.003, // steers well
+        traction: 0.35, // snaps to line fairly quickly
         jitterRange: TILE_SIZE * 0.12,
       },
-      { // Slower, low control, low traction, big jitter
+      {
+        // Slower, low control, low traction, big jitter
         name: 'Pink Drifter',
         color: 0xff66cc,
-        baseSpeed: 210,        // slightly slower
-        turnSpeed: 0.0022,     // lazier steering
-        traction: 0.18,        // more drift / slide feel
-        jitterRange: TILE_SIZE * 0.20   ,
+        baseSpeed: 210, // slightly slower
+        turnSpeed: 0.0022, // lazier steering
+        traction: 0.18, // more drift / slide feel
+        jitterRange: TILE_SIZE * 0.2,
       },
-      { // Fastest straight away, medium turn speed, low traction, tiny jitter
+      {
+        // Fastest straight away, medium turn speed, low traction, tiny jitter
         name: 'Purple Bullet',
         color: 0x800080,
-        baseSpeed: 240,        
+        baseSpeed: 240,
         turnSpeed: 0.00225,
-        traction: 0.18,     
+        traction: 0.18,
         jitterRange: TILE_SIZE * 0.05,
-      }
+      },
     ];
-  
-    this.npcCars = [];
-  
-    npcConfigs.forEach((cfg, i) => {
-    const offsetX = (i + 1) * -TILE_SIZE * 0.6;
-    const offsetY = (i % 2 === 0 ? 1 : -1) * TILE_SIZE * 0.2;
 
-    const npc = this.physics.add.sprite(
+    this.npcCars = [];
+
+    npcConfigs.forEach((cfg, i) => {
+      const offsetX = (i + 1) * -TILE_SIZE * 0.6;
+      const offsetY = (i % 2 === 0 ? 1 : -1) * TILE_SIZE * 0.2;
+
+      const npc = this.physics.add.sprite(
         this.spawnPos.x + offsetX,
         this.spawnPos.y + offsetY,
-        'car'
-    );
+        'car',
+      );
 
-    npc.setTint(cfg.color);
-    npc.setCollideWorldBounds(true);
-    npc.setDamping(false);
-    npc.setDrag(0, 0);
-    npc.setMaxVelocity(400, 400);
-    npc.setScale(0.7);
+      npc.setTint(cfg.color);
+      npc.setCollideWorldBounds(true);
+      npc.setDamping(false);
+      npc.setDrag(0, 0);
+      npc.setMaxVelocity(400, 400);
+      npc.setScale(0.7);
 
-    const jitterX = Phaser.Math.FloatBetween(-cfg.jitterRange, cfg.jitterRange);
-    const jitterY = Phaser.Math.FloatBetween(-cfg.jitterRange, cfg.jitterRange);
+      const jitterX = Phaser.Math.FloatBetween(-cfg.jitterRange, cfg.jitterRange);
+      const jitterY = Phaser.Math.FloatBetween(-cfg.jitterRange, cfg.jitterRange);
 
-    if (npcWaypoints.length > 0) {
+      if (npcWaypoints.length > 0) {
         const wp = npcWaypoints[0];
         npc.rotation = Phaser.Math.Angle.Between(npc.x, npc.y, wp.x, wp.y);
-    }
+      }
 
-    this.physics.add.collider(
-        npc,
-        this.walls,
-        this.handleNPCWallCollision,
-        undefined,
-        this
-    );
+      this.physics.add.collider(npc, this.walls, this.handleNPCWallCollision, undefined, this);
 
-    this.npcCars.push({
+      this.npcCars.push({
         sprite: npc,
         waypointIndex: 0,
         name: cfg.name,
@@ -163,8 +157,8 @@ export class MainScene extends Phaser.Scene {
         health: 100,
         maxHealth: 100,
         baseColor: cfg.color,
-        dnf: false
-    });
+        dnf: false,
+      });
     });
   }
 
@@ -175,14 +169,14 @@ export class MainScene extends Phaser.Scene {
         color: '#ffffff',
       })
       .setScrollFactor(0);
-  
+
     this.timerText = this.add
       .text(10, 32, 'Time: 0.00s', {
         fontSize: '18px',
         color: '#ffffff',
       })
       .setScrollFactor(0);
-  
+
     this.bestTimeText = this.add
       .text(10, 54, 'Best: --.--s', {
         fontSize: '18px',
@@ -234,76 +228,70 @@ export class MainScene extends Phaser.Scene {
   private createPlayer() {
     // Spawn at S
     this.player = this.physics.add.sprite(this.spawnPos.x, this.spawnPos.y, 'car');
-  
+
     this.player.setCollideWorldBounds(true);
-  
+
     // Let us handle speed/friction manually
     this.player.setDamping(false);
     this.player.setDrag(0, 0);
     this.player.setMaxVelocity(400, 400);
-  
+
     // Point the car to the right to start
     this.player.setAngle(0);
 
     this.player.setScale(0.7);
-  
+
     // Collide with walls
-    this.physics.add.collider(
-        this.player,
-        this.walls,
-        this.handleWallCollision,
-        undefined,
-        this
-      );
+    this.physics.add.collider(this.player, this.walls, this.handleWallCollision, undefined, this);
   }
 
   private handleWallCollision(
     player: Phaser.GameObjects.GameObject,
-    wall: Phaser.GameObjects.GameObject
+    wall: Phaser.GameObjects.GameObject,
   ) {
     const body = this.player.body as Phaser.Physics.Arcade.Body;
     const speed = body.velocity.length();
-  
+
     // Ignore very soft bumps
     const impactThreshold = 80;
     if (speed < impactThreshold) return;
-  
+
     // --- DAMAGE (same as before) ---
     const damage = Phaser.Math.Clamp(Math.floor(speed / 40), 5, 25);
     this.applyDamage(damage);
-  
+
     // --- PHYSICAL-ISH BOUNCE ---
-  
+
     const wallRect = wall as Phaser.GameObjects.Rectangle;
-  
+
     // Normal pointing from wall center to player (approx collision normal)
     const normal = new Phaser.Math.Vector2(
       this.player.x - wallRect.x,
-      this.player.y - wallRect.y
+      this.player.y - wallRect.y,
     ).normalize();
-  
+
     // Current velocity
     const v = new Phaser.Math.Vector2(body.velocity.x, body.velocity.y);
-  
+
     // Component of velocity along the normal
     const vn = v.dot(normal);
-  
+
     // Only bounce if we're moving INTO the wall (velocity toward wall)
     // With this normal, 'into wall' gives vn < 0
     if (vn < 0) {
       const restitution = 0.66; // 0 = no bounce, 1 = perfect elastic
-  
+
       // v' = v - (1 + e) * (v·n) * n
       const bounce = normal.clone().scale((1 + restitution) * vn);
       v.subtract(bounce);
-  
+
       // Optionally damp overall speed a bit so you don't ping-pong forever
       v.scale(0.9);
     }
-  
+
     // Apply the new velocity
     body.setVelocity(v.x, v.y);
-  
+
     // Flash red briefly
     this.player.setTint(0xff0000);
     this.time.delayedCall(120, () => {
@@ -315,7 +303,7 @@ export class MainScene extends Phaser.Scene {
     npcWaypoints.forEach((wp, index) => {
       // little circle
       this.add.circle(wp.x, wp.y, 6, 0xff0000, 0.7);
-  
+
       // label
       this.add.text(wp.x + 8, wp.y - 6, index.toString(), {
         fontSize: '12px',
@@ -326,45 +314,42 @@ export class MainScene extends Phaser.Scene {
 
   private handleNPCWallCollision(
     npcGO: Phaser.GameObjects.GameObject,
-    wallGO: Phaser.GameObjects.GameObject
+    wallGO: Phaser.GameObjects.GameObject,
   ) {
     const npc = npcGO as Phaser.Physics.Arcade.Sprite;
     const body = npc.body as Phaser.Physics.Arcade.Body;
     const speed = body.velocity.length();
-  
-    const npcCar = this.npcCars.find(c => c.sprite === npc);
+
+    const npcCar = this.npcCars.find((c) => c.sprite === npc);
     if (!npcCar || npcCar.finished || npcCar.dnf) return;
-  
+
     const wallRect = wallGO as Phaser.GameObjects.Rectangle;
-  
+
     // Approximate collision normal: from wall center to NPC
-    const normal = new Phaser.Math.Vector2(
-      npc.x - wallRect.x,
-      npc.y - wallRect.y
-    ).normalize();
-  
+    const normal = new Phaser.Math.Vector2(npc.x - wallRect.x, npc.y - wallRect.y).normalize();
+
     // Current velocity vector
     const v = new Phaser.Math.Vector2(body.velocity.x, body.velocity.y);
-  
+
     // Component of velocity along the normal
     const vn = v.dot(normal);
-  
+
     // Soft physical-ish bounce
     if (vn < 0) {
       const restitution = 0.1; // low bounce
-  
+
       const bounce = normal.clone().scale((1 + restitution) * vn);
       v.subtract(bounce);
-  
+
       v.scale(0.92);
-  
+
       if (v.length() > npcCar.baseSpeed) {
         v.normalize().scale(npcCar.baseSpeed);
       }
     }
-  
+
     body.setVelocity(v.x, v.y);
-  
+
     // --- DAMAGE based on impact speed ---
     const impactThreshold = 80;
     if (speed >= impactThreshold) {
@@ -374,30 +359,31 @@ export class MainScene extends Phaser.Scene {
   }
 
   private applyDamage(amount: number) {
-    if(amount <= 0) return;
+    if (amount <= 0) return;
     // Tiny damage effect on the player car
     this.showDamageEffect(this.player, { isPlayer: true });
     this.health -= amount;
     if (this.health < 0) this.health = 0;
     this.healthText.setText(`Health: ${this.health}`);
-  
+
     if (this.health <= 0) {
       // End timer if it was running
       if (this.timerRunning) {
+        console.log('!! SETTING this.timerRunning to false 3');
         this.timerRunning = false;
         const seconds = (this.elapsedTime / 1000).toFixed(2);
         console.log(`Run ended (wreck) at ${seconds}s`);
       }
-  
+
       // Mark as DNF for this run
       this.playerFinishTime = null;
       this.playerDNF = true;
-  
+
       // Stop the car and show wreck state
       const body = this.player.body as Phaser.Physics.Arcade.Body;
       body.setVelocity(0, 0);
       this.player.setTint(0xff0000);
-  
+
       this.updateRacerHUD();
 
       // Do NOT end race or show results yet; NPCs keep racing.
@@ -406,7 +392,7 @@ export class MainScene extends Phaser.Scene {
     }
   }
   private applyNPCDamage(npcCar: NPCCar, amount: number) {
-    if(amount <= 0) return;
+    if (amount <= 0) return;
     if (npcCar.finished || npcCar.dnf) return;
     this.showDamageEffect(npcCar.sprite, { isPlayer: false });
 
@@ -414,7 +400,7 @@ export class MainScene extends Phaser.Scene {
     if (npcCar.health <= 0) {
       npcCar.health = 0;
       npcCar.dnf = true;
-  
+
       const npc = npcCar.sprite;
       const body = npc.body as Phaser.Physics.Arcade.Body;
       body.setVelocity(0, 0);
@@ -423,10 +409,10 @@ export class MainScene extends Phaser.Scene {
       console.log(`${npcCar.name} wrecked (DNF).`);
     }
   }
-  
+
   private handleDeathAndRespawn() {
     this.startNewRound();
-  
+
     // Brief "respawn" flash
     this.player.setTint(0x00ffff);
     this.time.delayedCall(200, () => {
@@ -441,20 +427,14 @@ export class MainScene extends Phaser.Scene {
       TILE_SIZE * 0.8,
       TILE_SIZE * 0.8,
       0x00ff00,
-      0.25
+      0.25,
     );
-  
+
     this.physics.add.existing(this.goalZone, true);
-  
+
     // Player overlap
-    this.physics.add.overlap(
-      this.player,
-      this.goalZone,
-      this.handleGoalReached,
-      undefined,
-      this
-    );
-  
+    this.physics.add.overlap(this.player, this.goalZone, this.handleGoalReached, undefined, this);
+
     // NPC overlaps
     for (const npcCar of this.npcCars) {
       this.physics.add.overlap(
@@ -462,57 +442,57 @@ export class MainScene extends Phaser.Scene {
         this.goalZone,
         this.handleNPCGoalReached,
         undefined,
-        this
+        this,
       );
     }
   }
 
   private handleGoalReached() {
     if (!this.timerRunning) return;
-  
-    this.timerRunning = false;
-  
+
+    // 🔒 If we've already recorded a finish (or DNF), ignore extra overlaps
+    if (this.playerFinishTime !== null || this.playerDNF) {
+      return;
+    }
+
+    // Do NOT stop the timer here – NPCs still need it running
     const runTime = this.elapsedTime;
     this.playerFinishTime = runTime;
     this.playerDNF = false; // definitely not a DNF
-  
+
     const seconds = (runTime / 1000).toFixed(2);
     console.log(`Finished in ${seconds}s`);
-  
-    // Best-time logic stays the same
+
     if (this.bestTime === null || runTime < this.bestTime) {
       this.bestTime = runTime;
       this.bestTimeText.setText(`Best: ${seconds}s`);
       console.log('New best time!');
     }
-  
-    // Stop the car on the line
+
     const body = this.player.body as Phaser.Physics.Arcade.Body;
     body.setVelocity(0, 0);
-  
+
     this.player.setTint(0x00ff00);
     this.time.delayedCall(300, () => {
       this.player.clearTint();
     });
-    this.updateRacerHUD();  
-    // Now see if we can show results (will only show if all NPCs also done)
+
+    this.updateRacerHUD();
     this.tryShowRaceResults();
   }
 
   private handleNPCGoalReached(
     npcGO: Phaser.GameObjects.GameObject,
-    _goal: Phaser.GameObjects.GameObject
+    _goal: Phaser.GameObjects.GameObject,
   ) {
     const npc = npcGO as Phaser.Physics.Arcade.Sprite;
-    const npcCar = this.npcCars.find(c => c.sprite === npc);
+    const npcCar = this.npcCars.find((c) => c.sprite === npc);
     if (!npcCar || npcCar.dnf) return;
-  
+
     if (!npcCar.finished) {
       npcCar.finished = true;
       npcCar.finishTime = this.elapsedTime;
-      console.log(
-        `${npcCar.name} finished at ${(this.elapsedTime / 1000).toFixed(2)}s`
-      );
+      console.log(`${npcCar.name} finished at ${(this.elapsedTime / 1000).toFixed(2)}s`);
     }
     this.updateRacerHUD();
     this.tryShowRaceResults();
@@ -524,43 +504,43 @@ export class MainScene extends Phaser.Scene {
     this.timerRunning = false;
     this.hasMoved = false;
     this.timerText.setText('Time: 0.00s');
-  
+
     // Health
     this.health = 100;
     this.healthText.setText('Health: 100');
-  
+
     // Player
     this.player.x = this.spawnPos.x;
     this.player.y = this.spawnPos.y;
     this.player.rotation = 0;
-  
+
     const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
     playerBody.setVelocity(0, 0);
     this.player.clearTint();
-  
+
     // Race flags
     this.isRaceOver = false;
     this.playerFinishTime = null;
     this.playerDNF = false;
-  
+
     if (this.resultsText) {
       this.resultsText.destroy();
       this.resultsText = undefined;
     }
-  
+
     // NPCs reset (positions, velocities, finished flags, etc.)
     this.npcCars.forEach((npcCar, i) => {
       const npc = npcCar.sprite;
-  
+
       const offsetX = (i + 1) * -TILE_SIZE * 0.6;
       const offsetY = (i % 2 === 0 ? 1 : -1) * TILE_SIZE * 0.2;
-  
+
       npc.x = this.spawnPos.x + offsetX;
       npc.y = this.spawnPos.y + offsetY;
-  
+
       const body = npc.body as Phaser.Physics.Arcade.Body;
       body.setVelocity(0, 0);
-  
+
       npcCar.waypointIndex = 0;
       npcCar.finished = false;
       npcCar.finishTime = null;
@@ -584,116 +564,112 @@ export class MainScene extends Phaser.Scene {
 
     // Press R to start a new round
     if (Phaser.Input.Keyboard.JustDown(this.restartKey)) {
-        this.startNewRound();
-        return;
+      this.startNewRound();
+      return;
     }
 
     const body = this.player.body as Phaser.Physics.Arcade.Body;
-  
+
     // --- CONFIG TUNING ---
-    const turnSpeed = 0.003 * delta;      // radians per ms
-    const accel = 0.004 * delta;          // forward acceleration
-    const brake = 0.006 * delta;          // stronger decel when braking
-    const friction = 0.985;               // natural slowdown when coasting
-    const maxSpeed = 300;                 // forward max
-    const maxReverse = 100;               // reverse max
-  
+    const turnSpeed = 0.003 * delta; // radians per ms
+    const accel = 0.004 * delta; // forward acceleration
+    const brake = 0.006 * delta; // stronger decel when braking
+    const friction = 0.985; // natural slowdown when coasting
+    const maxSpeed = 300; // forward max
+    const maxReverse = 100; // reverse max
+
     // ⛔ If you're wrecked, or finished don't process movement/timer for the player
 
     const playerDead = this.health <= 0;
     const playerFinished = this.playerFinishTime !== null;
     if (!playerDead && !playerFinished && !this.isRaceOver) {
-
-
-        // 1) Steering
-        if (this.cursors.left?.isDown) {
+      // 1) Steering
+      if (this.cursors.left?.isDown) {
         this.player.rotation -= turnSpeed;
-        } else if (this.cursors.right?.isDown) {
+      } else if (this.cursors.right?.isDown) {
         this.player.rotation += turnSpeed;
-        }
-    
-        // 2) Get current scalar speed
-        let speed = body.velocity.length();
-    
-        // Determine if we’re moving forward or backward
-        // by checking dot product of velocity and facing
-        const facing = new Phaser.Math.Vector2(
+      }
+
+      // 2) Get current scalar speed
+      let speed = body.velocity.length();
+
+      // Determine if we’re moving forward or backward
+      // by checking dot product of velocity and facing
+      const facing = new Phaser.Math.Vector2(
         Math.cos(this.player.rotation),
-        Math.sin(this.player.rotation)
-        );
-        const movingForward =
-        body.velocity.dot(facing) >= 0; // true if roughly same direction
-    
-        if (!movingForward) {
+        Math.sin(this.player.rotation),
+      );
+      const movingForward = body.velocity.dot(facing) >= 0; // true if roughly same direction
+
+      if (!movingForward) {
         speed = -speed; // treat backwards motion as negative speed
-        }
-    
-        // 3) Throttle / brake input
-        if (this.cursors.up?.isDown) {
+      }
+
+      // 3) Throttle / brake input
+      if (this.cursors.up?.isDown) {
         speed += accel * 100;
-        } else if (this.cursors.down?.isDown) {
+      } else if (this.cursors.down?.isDown) {
         if (speed > 0) {
-            // braking while moving forward
-            speed -= brake * 100;
+          // braking while moving forward
+          speed -= brake * 100;
         } else {
-            // accelerate backwards
-            speed -= accel * 80;
+          // accelerate backwards
+          speed -= accel * 80;
         }
-        } else {
+      } else {
         // No throttle: apply friction
         speed *= friction;
-        }
-    
-        // 4) Clamp speeds
-        if (speed > maxSpeed) speed = maxSpeed;
-        if (speed < -maxReverse) speed = -maxReverse;
-    
-        // 5) Apply velocity along car’s facing direction
-        this.physics.velocityFromRotation(
-        this.player.rotation,
-        speed,
-        body.velocity
-        );
+      }
 
-        // 6) Start timer the first time the player attempts to move this run
-        if (
-            !this.hasMoved &&
-            (this.cursors.up?.isDown || this.cursors.down?.isDown)
-        ) {
-            this.hasMoved = true;
-            this.timerRunning = true;
-        }
+      // 4) Clamp speeds
+      if (speed > maxSpeed) speed = maxSpeed;
+      if (speed < -maxReverse) speed = -maxReverse;
+
+      // 5) Apply velocity along car’s facing direction
+      this.physics.velocityFromRotation(this.player.rotation, speed, body.velocity);
+
+      // 6) Start timer the first time the player attempts to move this run
+      if (!this.hasMoved && (this.cursors.up?.isDown || this.cursors.down?.isDown)) {
+        console.log('!! SETTING this.timerRunning to true 1');
+        this.hasMoved = true;
+        this.timerRunning = true;
+      }
     }
     // Update timer
     if (this.timerRunning) {
-        this.elapsedTime += delta; // delta is in ms
-        const seconds = (this.elapsedTime / 1000).toFixed(2);
-        this.timerText.setText(`Time: ${seconds}s`);
+      this.elapsedTime += delta; // delta is in ms
     }
+
+    // For display: once the player has a finish time, show that;
+    // otherwise, show the live elapsed time.
+    const displayMs = this.playerFinishTime !== null ? this.playerFinishTime : this.elapsedTime;
+
+    const seconds = (displayMs / 1000).toFixed(2);
+    this.timerText.setText(`Time: ${seconds}s`);
+
     this.updateRacerHUD();
   }
   private updateNPCs(delta: number) {
-
     // Once race is fully over and results shown, freeze NPCs
     if (this.isRaceOver) {
-        for (const npcCar of this.npcCars) {
+      for (const npcCar of this.npcCars) {
         const body = npcCar.sprite.body as Phaser.Physics.Arcade.Body;
         body.setVelocity(0, 0);
-        }
-        return;
+      }
+      return;
     }
-    
+
     // Don't move NPCs until the player actually starts their run
     if (!this.hasMoved) {
-        for (const npcCar of this.npcCars) {
+      for (const npcCar of this.npcCars) {
         const body = npcCar.sprite.body as Phaser.Physics.Arcade.Body;
         body.setVelocity(0, 0);
-        }
-        return;
+      }
+      return;
     }
-    
+
     if (npcWaypoints.length === 0) return;
-  
+
     for (const npcCar of this.npcCars) {
       if (npcCar.finished || npcCar.dnf) {
         const body = npcCar.sprite.body as Phaser.Physics.Arcade.Body;
@@ -701,50 +677,46 @@ export class MainScene extends Phaser.Scene {
         continue;
       }
       const npc = npcCar.sprite;
-  
+
       const wp = npcWaypoints[npcCar.waypointIndex];
-  
+
       // Use jitter except on super-tight corners if you’ve added that logic
       const targetX = wp.x + npcCar.jitterX;
       const targetY = wp.y + npcCar.jitterY;
-  
+
       const dx = targetX - npc.x;
       const dy = targetY - npc.y;
-  
+
       const targetAngle = Math.atan2(dy, dx);
       let angleDiff = Phaser.Math.Angle.Wrap(targetAngle - npc.rotation);
-  
+
       const turnSpeed = npcCar.turnSpeed * delta;
-  
+
       // Turn gradually toward waypoint
       if (angleDiff > 0) {
         npc.rotation += Math.min(angleDiff, turnSpeed);
       } else {
         npc.rotation += Math.max(angleDiff, -turnSpeed);
       }
-  
+
       // Desired velocity along facing
       const body = npc.body as Phaser.Physics.Arcade.Body;
       const desired = new Phaser.Math.Vector2();
-      this.physics.velocityFromRotation(
-        npc.rotation,
-        npcCar.baseSpeed,
-        desired
-      );
-  
+      this.physics.velocityFromRotation(npc.rotation, npcCar.baseSpeed, desired);
+
       // Current velocity
       const current = new Phaser.Math.Vector2(body.velocity.x, body.velocity.y);
-  
+
       // Traction: how quickly we move current vel toward desired vel
       const t = Phaser.Math.Clamp(npcCar.traction, 0.05, 0.6);
       const newVel = current.lerp(desired, t);
-  
+
       body.setVelocity(newVel.x, newVel.y);
-  
+
       // Waypoint reach check (you may already have the 1.1 radius tweak)
       const distSq = dx * dx + dy * dy;
       const reachRadius = TILE_SIZE * TILE_SIZE * 1.1;
-  
+
       if (distSq < reachRadius) {
         npcCar.waypointIndex = (npcCar.waypointIndex + 1) % npcWaypoints.length;
       }
@@ -752,26 +724,30 @@ export class MainScene extends Phaser.Scene {
   }
   private tryShowRaceResults() {
     if (this.isRaceOver) return;
-  
+
     const playerFinished = this.playerFinishTime !== null;
-    const allNPCDone = this.npcCars.every(c => c.finished || c.dnf);
-  
+    const allNPCDone = this.npcCars.every((c) => c.finished || c.dnf);
+
     // Case A: you finished, wait for all NPCs to be done (finish or DNF)
     if (playerFinished && allNPCDone) {
+      console.log('!! SETTING this.timerRunning to false 1');
       this.isRaceOver = true;
+      this.timerRunning = false; // ⬅ stop global clock now
       this.showRaceResults();
       return;
     }
-  
+
     // Case B: you DNF, wait for all NPCs to be done
     if (this.playerDNF && allNPCDone) {
+      console.log('!! SETTING this.timerRunning to true 2');
       this.isRaceOver = true;
+      this.timerRunning = false; // ⬅ also stop here
       this.showRaceResults();
     }
   }
   private showRaceResults() {
     const racers: { label: string; finished: boolean; time: number }[] = [];
-  
+
     // Player
     if (this.playerFinishTime !== null) {
       racers.push({
@@ -786,39 +762,39 @@ export class MainScene extends Phaser.Scene {
         time: Infinity,
       });
     }
-  
+
     // NPCs
     for (const npcCar of this.npcCars) {
-        if (npcCar.finished && npcCar.finishTime !== null) {
-          racers.push({
-            label: npcCar.name,
-            finished: true,
-            time: npcCar.finishTime,
-          });
-        } else if (npcCar.dnf) {
-          racers.push({
-            label: npcCar.name,
-            finished: false,
-            time: Infinity, // will sort after finishers
-          });
-        } else {
-          // This shouldn't really happen once we call showRaceResults(),
-          // but just in case, treat as DNF.
-          racers.push({
-            label: npcCar.name,
-            finished: false,
-            time: Infinity,
-          });
-        }
+      if (npcCar.finished && npcCar.finishTime !== null) {
+        racers.push({
+          label: npcCar.name,
+          finished: true,
+          time: npcCar.finishTime,
+        });
+      } else if (npcCar.dnf) {
+        racers.push({
+          label: npcCar.name,
+          finished: false,
+          time: Infinity, // will sort after finishers
+        });
+      } else {
+        // This shouldn't really happen once we call showRaceResults(),
+        // but just in case, treat as DNF.
+        racers.push({
+          label: npcCar.name,
+          finished: false,
+          time: Infinity,
+        });
       }
-  
+    }
+
     // Sort: finished first, by time; then DNFs
     racers.sort((a, b) => {
       if (a.finished && !b.finished) return -1;
       if (!a.finished && b.finished) return 1;
       return a.time - b.time;
     });
-  
+
     let text = 'Race Results\n\n';
     racers.forEach((r, index) => {
       const place = index + 1;
@@ -829,11 +805,11 @@ export class MainScene extends Phaser.Scene {
         text += `${place}. ${r.label} - DNF\n`;
       }
     });
-  
+
     if (this.resultsText) {
       this.resultsText.destroy();
     }
-  
+
     this.resultsText = this.add
       .text(this.scale.width / 2, this.scale.height / 2, text, {
         fontSize: '24px',
@@ -841,7 +817,7 @@ export class MainScene extends Phaser.Scene {
         align: 'center',
       })
       .setOrigin(0.5);
-  
+
     // Optional: faint background box behind results
     const bg = this.add
       .rectangle(
@@ -850,19 +826,16 @@ export class MainScene extends Phaser.Scene {
         this.resultsText.width + 40,
         this.resultsText.height + 40,
         0x000000,
-        0.6
+        0.6,
       )
       .setDepth(this.resultsText.depth - 1);
-  
+
     this.resultsText.setDepth(bg.depth + 1);
   }
 
-  private showDamageEffect(
-    sprite: Phaser.GameObjects.Sprite,
-    opts: { isPlayer?: boolean } = {}
-  ) {
+  private showDamageEffect(sprite: Phaser.GameObjects.Sprite, opts: { isPlayer?: boolean } = {}) {
     const { isPlayer = false } = opts;
-  
+
     // Determine the correct base color to restore after flash
     let restoreColor: number | null = null;
 
@@ -870,25 +843,25 @@ export class MainScene extends Phaser.Scene {
     if (opts.isPlayer) {
       restoreColor = null; // means clearTint()
     } else {
-    // Find NPC and get its base color
-    const npcCar = this.npcCars.find(c => c.sprite === sprite);
-    if (npcCar) restoreColor = npcCar.baseColor;
-}
+      // Find NPC and get its base color
+      const npcCar = this.npcCars.find((c) => c.sprite === sprite);
+      if (npcCar) restoreColor = npcCar.baseColor;
+    }
 
-sprite.setTint(0xff5555);
+    sprite.setTint(0xff5555);
 
-this.time.delayedCall(120, () => {
-  if (restoreColor === null) {
-    sprite.clearTint();
-  } else {
-    sprite.setTint(restoreColor);
-  }
-});
-  
+    this.time.delayedCall(120, () => {
+      if (restoreColor === null) {
+        sprite.clearTint();
+      } else {
+        sprite.setTint(restoreColor);
+      }
+    });
+
     // Tiny "spark" puff
     const spark = this.add.rectangle(sprite.x, sprite.y, 6, 6, 0xffff66, 1);
     spark.setDepth(sprite.depth + 1);
-  
+
     this.tweens.add({
       targets: spark,
       scaleX: 2,
@@ -898,7 +871,7 @@ this.time.delayedCall(120, () => {
       ease: 'quad.out',
       onComplete: () => spark.destroy(),
     });
-  
+
     // Very light camera shake for the player only
     if (isPlayer) {
       this.cameras.main.shake(100, 0.002); // 100ms, very tiny amplitude
@@ -907,90 +880,80 @@ this.time.delayedCall(120, () => {
 
   private createRacerHUD() {
     // Clear any existing rows (just in case)
-    this.racerHUDRows.forEach(row => {
+    this.racerHUDRows.forEach((row) => {
       row.label.destroy();
       row.health.destroy();
       row.status.destroy();
     });
     this.racerHUDRows = [];
-  
+
     const startX = this.scale.width - 260; // right side
     const startY = 10;
     const rowHeight = 20;
-  
+
     const style: Phaser.Types.GameObjects.Text.TextStyle = {
       fontSize: '14px',
       color: '#ffffff',
     };
-  
+
     const totalRows = 1 + this.npcCars.length; // player + all NPCs
-  
+
     for (let i = 0; i < totalRows; i++) {
       const y = startY + i * rowHeight;
-  
-      const label = this.add
-        .text(startX, y, '', style)
-        .setScrollFactor(0);
-  
-      const health = this.add
-        .text(startX + 90, y, '', style)
-        .setScrollFactor(0);
-  
-      const status = this.add
-        .text(startX + 170, y, '', style)
-        .setScrollFactor(0);
-  
+
+      const label = this.add.text(startX, y, '', style).setScrollFactor(0);
+
+      const health = this.add.text(startX + 90, y, '', style).setScrollFactor(0);
+
+      const status = this.add.text(startX + 170, y, '', style).setScrollFactor(0);
+
       this.racerHUDRows.push({ label, health, status });
     }
-  
+
     this.updateRacerHUD(); // initialize contents
   }
   private updateRacerHUD() {
     if (this.racerHUDRows.length === 0) return;
-  
+
     type RacerState = {
       label: string;
       health: number;
       finished: boolean;
       dnf: boolean;
-      time: number;      // finish time if finished, Infinity otherwise
+      time: number; // finish time if finished, Infinity otherwise
       isPlayer: boolean;
     };
-  
+
     const racers: RacerState[] = [];
-  
+
     // --- Player state ---
     const playerFinished = this.playerFinishTime !== null;
     const playerDNF = this.playerDNF || this.health <= 0;
-  
+
     racers.push({
       label: 'You',
       health: this.health,
       finished: playerFinished,
       dnf: playerDNF,
-      time: playerFinished && this.playerFinishTime !== null
-        ? this.playerFinishTime
-        : Infinity,
+      time: playerFinished && this.playerFinishTime !== null ? this.playerFinishTime : Infinity,
       isPlayer: true,
     });
-  
+
     // --- NPC states ---
     for (const npcCar of this.npcCars) {
       const finished = npcCar.finished && npcCar.finishTime !== null;
       const dnf = npcCar.dnf || npcCar.health <= 0;
-  
+
       racers.push({
         label: npcCar.name,
         health: npcCar.health,
         finished,
         dnf,
-        time: finished && npcCar.finishTime !== null
-          ? npcCar.finishTime
-          : Infinity,
+        time: finished && npcCar.finishTime !== null ? npcCar.finishTime : Infinity,
         isPlayer: false,
       });
     }
-  
+
     // --- Live sorting / "scoring" ---
     // 1) Finished (by time)
     // 2) Still racing / ready
@@ -999,22 +962,22 @@ this.time.delayedCall(120, () => {
       // DNF last
       if (a.dnf && !b.dnf) return 1;
       if (!a.dnf && b.dnf) return -1;
-  
+
       // Finished earlier beats finished later
       if (a.finished && b.finished) return a.time - b.time;
       if (a.finished && !b.finished) return -1;
       if (!a.finished && b.finished) return 1;
-  
+
       // Both not finished and not DNF: keep relative order (stable-ish)
       return 0;
     });
-  
+
     // --- Render into rows ---
     const totalRows = this.racerHUDRows.length;
     for (let i = 0; i < totalRows; i++) {
       const row = this.racerHUDRows[i];
       const racer = racers[i];
-  
+
       if (!row || !racer) {
         // Clear any extra rows if present
         if (row) {
@@ -1024,10 +987,10 @@ this.time.delayedCall(120, () => {
         }
         continue;
       }
-  
+
       row.label.setText(racer.label);
       row.health.setText(`HP: ${racer.health}`);
-  
+
       // Status text
       let statusText: string;
       if (racer.finished && racer.time !== Infinity) {
@@ -1040,11 +1003,11 @@ this.time.delayedCall(120, () => {
         statusText = 'Ready';
       }
       row.status.setText(statusText);
-  
+
       // --- Coloring ---
       // default: white
       let color = '#ffffff';
-  
+
       if (racer.dnf || racer.health <= 0) {
         // wrecked / DNF in red
         color = '#ff5555';
@@ -1052,7 +1015,7 @@ this.time.delayedCall(120, () => {
         // optional: soft green for finishers
         color = '#88ff88';
       }
-  
+
       row.label.setColor(color);
       row.health.setColor(color);
       row.status.setColor(color);
