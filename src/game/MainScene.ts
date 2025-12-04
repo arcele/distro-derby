@@ -142,7 +142,13 @@ export class MainScene extends Phaser.Scene {
         npc.rotation = Phaser.Math.Angle.Between(npc.x, npc.y, wp.x, wp.y);
       }
 
-      this.physics.add.collider(npc, this.walls, this.handleNPCWallCollision, undefined, this);
+      this.physics.add.collider(
+        npc,
+        this.walls,
+        this.handleNPCWallCollision,
+        this.wallProcessNPC,
+        this,
+      );
 
       this.npcCars.push({
         sprite: npc,
@@ -204,6 +210,8 @@ export class MainScene extends Phaser.Scene {
 
           this.physics.add.existing(wallRect, true);
           this.walls.add(wallRect);
+
+          (wallRect as any).setData('tileType', TileType.Wall);
           continue;
         }
 
@@ -315,6 +323,8 @@ export class MainScene extends Phaser.Scene {
 
     this.physics.add.existing(tri, true);
     this.walls.add(tri);
+
+    (tri as any).setData('tileType', tile);
   }
 
   private createPlayer() {
@@ -334,7 +344,13 @@ export class MainScene extends Phaser.Scene {
     this.player.setScale(0.7);
 
     // Collide with walls
-    this.physics.add.collider(this.player, this.walls, this.handleWallCollision, undefined, this);
+    this.physics.add.collider(
+      this.player,
+      this.walls,
+      this.handleWallCollision,
+      this.wallProcessPlayer,
+      this,
+    );
   }
 
   private handleWallCollision(
@@ -1112,4 +1128,67 @@ export class MainScene extends Phaser.Scene {
       row.status.setColor(color);
     }
   }
+  private shouldCollideWithWall(
+    car: Phaser.Physics.Arcade.Sprite,
+    wallGO: Phaser.GameObjects.GameObject,
+  ): boolean {
+    const dataObj = wallGO as any;
+    const tileType = dataObj.getData?.('tileType') as TileType | undefined;
+
+    // Normal walls always collide
+    if (
+      tileType === undefined ||
+      (tileType !== TileType.CornerTL &&
+        tileType !== TileType.CornerTR &&
+        tileType !== TileType.CornerBR &&
+        tileType !== TileType.CornerBL)
+    ) {
+      return true;
+    }
+
+    // Compute car position in tile-local 0..1 coordinates
+    const cx = dataObj.x as number;
+    const cy = dataObj.y as number;
+    const x0 = cx - TILE_SIZE / 2;
+    const y0 = cy - TILE_SIZE / 2;
+
+    const u = (car.x - x0) / TILE_SIZE;
+    const v = (car.y - y0) / TILE_SIZE;
+
+    // If car center isn't inside tile bounds, don't collide
+    if (u < 0 || u > 1 || v < 0 || v > 1) {
+      return false;
+    }
+
+    // Triangle rules
+    switch (tileType) {
+      case TileType.CornerTL:
+        return u + v <= 1; // solid = top-left triangle
+
+      case TileType.CornerBR:
+        return u + v >= 1; // solid = bottom-right triangle
+
+      case TileType.CornerTR:
+        return u >= v; // solid = top-right triangle
+
+      case TileType.CornerBL:
+        return v >= u; // solid = bottom-left triangle
+
+      default:
+        return true;
+    }
+  }
+  private wallProcessPlayer = (
+    playerGO: Phaser.GameObjects.GameObject,
+    wallGO: Phaser.GameObjects.GameObject,
+  ): boolean => {
+    return this.shouldCollideWithWall(playerGO as Phaser.Physics.Arcade.Sprite, wallGO);
+  };
+
+  private wallProcessNPC = (
+    npcGO: Phaser.GameObjects.GameObject,
+    wallGO: Phaser.GameObjects.GameObject,
+  ): boolean => {
+    return this.shouldCollideWithWall(npcGO as Phaser.Physics.Arcade.Sprite, wallGO);
+  };
 }

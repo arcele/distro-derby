@@ -12,7 +12,7 @@ export const GameConfig: type.GameConfig = {
   physics: {
     default: 'arcade',
     arcade: {
-      debug: true,
+      debug: false, // toggle to true to see collision and physics details
     },
   },
   scene: [MainScene],
