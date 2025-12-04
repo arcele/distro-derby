@@ -47,6 +47,8 @@ export class MainScene extends Phaser.Scene {
   private isRaceOver = false;
   private resultsText?: Phaser.GameObjects.Text;
 
+  private resultsBg?: Phaser.GameObjects.Rectangle;
+
   private playerDNF = false;
 
   private racerHUDRows: {
@@ -634,6 +636,10 @@ export class MainScene extends Phaser.Scene {
       this.resultsText.destroy();
       this.resultsText = undefined;
     }
+    if (this.resultsBg) {
+      this.resultsBg.destroy();
+      this.resultsBg = undefined;
+    }
 
     // NPCs reset (positions, velocities, finished flags, etc.)
     this.npcCars.forEach((npcCar, i) => {
@@ -882,11 +888,9 @@ export class MainScene extends Phaser.Scene {
         racers.push({
           label: npcCar.name,
           finished: false,
-          time: Infinity, // will sort after finishers
+          time: Infinity,
         });
       } else {
-        // This shouldn't really happen once we call showRaceResults(),
-        // but just in case, treat as DNF.
         racers.push({
           label: npcCar.name,
           finished: false,
@@ -913,31 +917,48 @@ export class MainScene extends Phaser.Scene {
       }
     });
 
+    // 🔹 Clean up any previous UI
     if (this.resultsText) {
       this.resultsText.destroy();
+      this.resultsText = undefined;
+    }
+    if (this.resultsBg) {
+      this.resultsBg.destroy();
+      this.resultsBg = undefined;
     }
 
+    const centerX = this.scale.width / 2;
+    const centerY = this.scale.height / 2;
+
+    // 🔹 Create text first to get size
     this.resultsText = this.add
-      .text(this.scale.width / 2, this.scale.height / 2, text, {
+      .text(centerX, centerY, text, {
         fontSize: '24px',
         color: '#ffffff',
         align: 'center',
       })
-      .setOrigin(0.5);
+      .setOrigin(0.5)
+      .setScrollFactor(0);
 
-    // Optional: faint background box behind results
-    const bg = this.add
+    const padding = 30;
+
+    // 🔹 Solid wall-colored panel behind text
+    this.resultsBg = this.add
       .rectangle(
-        this.scale.width / 2,
-        this.scale.height / 2,
-        this.resultsText.width + 40,
-        this.resultsText.height + 40,
-        0x000000,
-        0.6,
+        centerX,
+        centerY,
+        this.resultsText.width + padding * 2,
+        this.resultsText.height + padding * 2,
+        0x333333, // same as wall fill
+        1, // fully opaque
       )
-      .setDepth(this.resultsText.depth - 1);
+      .setStrokeStyle(2, 0x777777) // same as wall border
+      .setScrollFactor(0);
 
-    this.resultsText.setDepth(bg.depth + 1);
+    // 🔹 Put them ABOVE the track & HUD
+    const baseDepth = 1000;
+    this.resultsBg.setDepth(baseDepth);
+    this.resultsText.setDepth(baseDepth + 1);
   }
 
   private showDamageEffect(sprite: Phaser.GameObjects.Sprite, opts: { isPlayer?: boolean } = {}) {
@@ -1132,6 +1153,7 @@ export class MainScene extends Phaser.Scene {
     car: Phaser.Physics.Arcade.Sprite,
     wallGO: Phaser.GameObjects.GameObject,
   ): boolean {
+    // TODO: proper corner collision once we move off Arcade
     const dataObj = wallGO as any;
     const tileType = dataObj.getData?.('tileType') as TileType | undefined;
 
