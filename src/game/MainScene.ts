@@ -19,6 +19,8 @@ interface NPCCar {
   health: number;
   maxHealth: number;
   baseColor: number;
+
+  fireEmitter?: Phaser.GameObjects.Particles.ParticleEmitter;
 }
 
 export class MainScene extends Phaser.Scene {
@@ -39,6 +41,9 @@ export class MainScene extends Phaser.Scene {
 
   private restartKey!: Phaser.Input.Keyboard.Key;
   private npcCars: NPCCar[] = [];
+
+  // 🔥 Only need per-car emitters, no manager
+  private playerFireEmitter?: Phaser.GameObjects.Particles.ParticleEmitter;
 
   private spawnPos = { x: 0, y: 0 };
   private goalPos = { x: 0, y: 0 };
@@ -68,6 +73,14 @@ export class MainScene extends Phaser.Scene {
     g.fillRect(0, 0, 24, 14); // smaller car sprite
     g.generateTexture('car', 24, 14);
     g.destroy();
+
+    // 🔥 NEW: fire particle texture
+    const fireGfx = this.make.graphics({ x: 0, y: 0, add: false });
+    const radius = 4;
+    fireGfx.fillStyle(0xffa500, 1); // orange
+    fireGfx.fillCircle(radius, radius, radius);
+    fireGfx.generateTexture('fireParticle', radius * 2, radius * 2);
+    fireGfx.destroy();
   }
 
   create() {
@@ -75,7 +88,7 @@ export class MainScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor('#ff00ff');
     this.walls = this.physics.add.staticGroup();
     this.buildMap();
-    //      this.drawWaypointDebug();  // Uncomment this line to show waypoint spots for debugging NPC driving path
+    //      this.drawWaypointDebug();
     this.createPlayer();
     this.createNPCs();
     this.createGoalZone();
@@ -468,7 +481,62 @@ export class MainScene extends Phaser.Scene {
       this.applyNPCDamage(npcCar, damage);
     }
   }
+  // 🔥 Generic helper: attach a looping fire emitter to a sprite
+  private setSpriteOnFire(
+    sprite: Phaser.Physics.Arcade.Sprite,
+  ): Phaser.GameObjects.Particles.ParticleEmitter {
+    const emitterGO = this.add.particles(sprite.x, sprite.y, 'fireParticle', {
+      lifespan: { min: 200, max: 500 },
+      speed: { min: 20, max: 60 },
+      scale: { start: 0.8, end: 0 },
+      alpha: { start: 1, end: 0 },
+      frequency: 60,
+      angle: { min: 260, max: 280 },
+      gravityY: -40,
+      blendMode: Phaser.BlendModes.ADD,
+    });
 
+    // optional: render above the car
+    emitterGO.setDepth(sprite.depth + 1);
+
+    return emitterGO;
+  }
+
+  // 🔥 Player-specific fire
+  private setPlayerOnFire() {
+    if (this.playerFireEmitter) return; // already burning
+    this.playerFireEmitter = this.setSpriteOnFire(this.player);
+  }
+  private updateFireEmitters() {
+    const place = (
+      sprite: Phaser.Physics.Arcade.Sprite,
+      emitter?: Phaser.GameObjects.Particles.ParticleEmitter,
+    ) => {
+      if (!emitter) return;
+
+      const behind = 12;
+      const up = -2;
+
+      const cos = Math.cos(sprite.rotation);
+      const sin = Math.sin(sprite.rotation);
+
+      const ox = -cos * behind;
+      const oy = -sin * behind;
+
+      emitter.setPosition(sprite.x + ox, sprite.y + oy + up);
+      emitter.setAngle(Phaser.Math.RadToDeg(sprite.rotation) + 180);
+    };
+
+    place(this.player, this.playerFireEmitter);
+    for (const npcCar of this.npcCars) {
+      place(npcCar.sprite, npcCar.fireEmitter);
+    }
+  }
+  // 🔥 NPC-specific fire
+  private setNpcOnFire(npcCar: NPCCar) {
+    if (npcCar.fireEmitter) return;
+    npcCar.fireEmitter = this.setSpriteOnFire(npcCar.sprite);
+  }
   private applyDamage(amount: number) {
     if (amount <= 0) return;
     // Tiny damage effect on the player car
@@ -494,6 +562,9 @@ export class MainScene extends Phaser.Scene {
       body.setVelocity(0, 0);
       this.player.setTint(0xff0000);
 
+      // 🔥 Player is now on fire
+      this.setPlayerOnFire();
+
       this.updateRacerHUD();
 
       // Do NOT end race or show results yet; NPCs keep racing.
@@ -504,6 +575,7 @@ export class MainScene extends Phaser.Scene {
   private applyNPCDamage(npcCar: NPCCar, amount: number) {
     if (amount <= 0) return;
     if (npcCar.finished || npcCar.dnf) return;
+
     this.showDamageEffect(npcCar.sprite, { isPlayer: false });
 
     npcCar.health -= amount;
@@ -514,9 +586,16 @@ export class MainScene extends Phaser.Scene {
       const npc = npcCar.sprite;
       const body = npc.body as Phaser.Physics.Arcade.Body;
       body.setVelocity(0, 0);
-      npc.setTint(0x880000); // subtle “wrecked” tint
+      npc.setTint(0x880000);
+
+      // 🔥 NPC is now on fire
+      this.setNpcOnFire(npcCar);
+
       this.updateRacerHUD();
       console.log(`${npcCar.name} wrecked (DNF).`);
+
+      // ✅ ADD THIS LINE:
+      this.tryShowRaceResults();
     }
   }
 
@@ -632,6 +711,18 @@ export class MainScene extends Phaser.Scene {
     this.isRaceOver = false;
     this.playerFinishTime = null;
     this.playerDNF = false;
+
+    if (this.playerFireEmitter) {
+      this.playerFireEmitter.destroy();
+      this.playerFireEmitter = undefined;
+    }
+
+    this.npcCars.forEach((npcCar) => {
+      if (npcCar.fireEmitter) {
+        npcCar.fireEmitter.destroy();
+        npcCar.fireEmitter = undefined;
+      }
+    });
 
     if (this.resultsText) {
       this.resultsText.destroy();
@@ -764,7 +855,7 @@ export class MainScene extends Phaser.Scene {
 
     const seconds = (displayMs / 1000).toFixed(2);
     this.timerText.setText(`Time: ${seconds}s`);
-
+    this.updateFireEmitters();
     this.updateRacerHUD();
   }
   private updateNPCs(delta: number) {
@@ -839,6 +930,7 @@ export class MainScene extends Phaser.Scene {
         npcCar.waypointIndex = (npcCar.waypointIndex + 1) % npcWaypoints.length;
       }
     }
+    this.updateFireEmitters();
   }
   private tryShowRaceResults() {
     if (this.isRaceOver) return;
