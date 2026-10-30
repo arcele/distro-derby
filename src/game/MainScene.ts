@@ -2,6 +2,8 @@
 import Phaser from 'phaser';
 import { level1, TILE_SIZE, TileType, npcWaypoints } from './level1';
 
+type PhysicsObject = Parameters<Phaser.Types.Physics.Arcade.ArcadePhysicsCallback>[0];
+
 interface NPCCar {
   sprite: Phaser.Physics.Arcade.Sprite;
   waypointIndex: number;
@@ -68,14 +70,14 @@ export class MainScene extends Phaser.Scene {
   }
 
   preload() {
-    const g = this.make.graphics({ x: 0, y: 0, add: false });
+    const g = this.make.graphics({ x: 0, y: 0 }, false);
     g.fillStyle(0xffcc00, 1);
     g.fillRect(0, 0, 24, 14); // smaller car sprite
     g.generateTexture('car', 24, 14);
     g.destroy();
 
     // 🔥 NEW: fire particle texture
-    const fireGfx = this.make.graphics({ x: 0, y: 0, add: false });
+    const fireGfx = this.make.graphics({ x: 0, y: 0 }, false);
     const radius = 4;
     fireGfx.fillStyle(0xffa500, 1); // orange
     fireGfx.fillCircle(radius, radius, radius);
@@ -85,7 +87,7 @@ export class MainScene extends Phaser.Scene {
 
   create() {
     this.cameras.main.roundPixels = true;
-    this.cameras.main.setBackgroundColor('#ff00ff');
+    this.cameras.main.setBackgroundColor('#121212');
     this.walls = this.physics.add.staticGroup();
     this.buildMap();
     //      this.drawWaypointDebug();
@@ -95,8 +97,8 @@ export class MainScene extends Phaser.Scene {
     this.createUI();
     this.createRacerHUD();
 
-    this.cursors = this.input.keyboard.createCursorKeys();
-    this.restartKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R);
+    this.cursors = this.input.keyboard!.createCursorKeys();
+    this.restartKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.R);
   }
 
   private createNPCs() {
@@ -134,7 +136,7 @@ export class MainScene extends Phaser.Scene {
     this.npcCars = [];
 
     npcConfigs.forEach((cfg, i) => {
-      const offsetX = (i + 1) * -TILE_SIZE * 0.6;
+      const offsetX = (i + 1) * TILE_SIZE * 0.7;
       const offsetY = (i % 2 === 0 ? 1 : -1) * TILE_SIZE * 0.2;
 
       const npc = this.physics.add.sprite(
@@ -369,10 +371,7 @@ export class MainScene extends Phaser.Scene {
     );
   }
 
-  private handleWallCollision(
-    player: Phaser.GameObjects.GameObject,
-    wall: Phaser.GameObjects.GameObject,
-  ) {
+  private handleWallCollision(_player: PhysicsObject, wall: PhysicsObject) {
     const body = this.player.body as Phaser.Physics.Arcade.Body;
     const speed = body.velocity.length();
 
@@ -423,23 +422,7 @@ export class MainScene extends Phaser.Scene {
     });
   }
 
-  private drawWaypointDebug() {
-    npcWaypoints.forEach((wp, index) => {
-      // little circle
-      this.add.circle(wp.x, wp.y, 6, 0xff0000, 0.7);
-
-      // label
-      this.add.text(wp.x + 8, wp.y - 6, index.toString(), {
-        fontSize: '12px',
-        color: '#ffcccc',
-      });
-    });
-  }
-
-  private handleNPCWallCollision(
-    npcGO: Phaser.GameObjects.GameObject,
-    wallGO: Phaser.GameObjects.GameObject,
-  ) {
+  private handleNPCWallCollision(npcGO: PhysicsObject, wallGO: PhysicsObject) {
     const npc = npcGO as Phaser.Physics.Arcade.Sprite;
     const body = npc.body as Phaser.Physics.Arcade.Body;
     const speed = body.velocity.length();
@@ -538,7 +521,7 @@ export class MainScene extends Phaser.Scene {
     npcCar.fireEmitter = this.setSpriteOnFire(npcCar.sprite);
   }
   private applyDamage(amount: number) {
-    if (amount <= 0) return;
+    if (amount <= 0 || this.playerDNF || this.playerFinishTime !== null) return;
     // Tiny damage effect on the player car
     this.showDamageEffect(this.player, { isPlayer: true });
     this.health -= amount;
@@ -546,13 +529,7 @@ export class MainScene extends Phaser.Scene {
     this.healthText.setText(`Health: ${this.health}`);
 
     if (this.health <= 0) {
-      // End timer if it was running
-      if (this.timerRunning) {
-        this.timerRunning = false;
-        const seconds = (this.elapsedTime / 1000).toFixed(2);
-        console.log(`Run ended (wreck) at ${seconds}s`);
-      }
-
+      // The shared race clock continues until every racer is done.
       // Mark as DNF for this run
       this.playerFinishTime = null;
       this.playerDNF = true;
@@ -597,16 +574,6 @@ export class MainScene extends Phaser.Scene {
       // ✅ ADD THIS LINE:
       this.tryShowRaceResults();
     }
-  }
-
-  private handleDeathAndRespawn() {
-    this.startNewRound();
-
-    // Brief "respawn" flash
-    this.player.setTint(0x00ffff);
-    this.time.delayedCall(200, () => {
-      this.player.clearTint();
-    });
   }
 
   private createGoalZone() {
@@ -670,13 +637,10 @@ export class MainScene extends Phaser.Scene {
     this.tryShowRaceResults();
   }
 
-  private handleNPCGoalReached(
-    npcGO: Phaser.GameObjects.GameObject,
-    _goal: Phaser.GameObjects.GameObject,
-  ) {
+  private handleNPCGoalReached(npcGO: PhysicsObject, _goal: PhysicsObject) {
     const npc = npcGO as Phaser.Physics.Arcade.Sprite;
     const npcCar = this.npcCars.find((c) => c.sprite === npc);
-    if (!npcCar || npcCar.dnf) return;
+    if (!this.timerRunning || !npcCar || npcCar.dnf || npcCar.finished) return;
 
     if (!npcCar.finished) {
       npcCar.finished = true;
@@ -699,8 +663,8 @@ export class MainScene extends Phaser.Scene {
     this.healthText.setText('Health: 100');
 
     // Player
-    this.player.x = this.spawnPos.x;
-    this.player.y = this.spawnPos.y;
+    this.player.setPosition(this.spawnPos.x, this.spawnPos.y);
+    (this.player.body as Phaser.Physics.Arcade.Body).reset(this.spawnPos.x, this.spawnPos.y);
     this.player.rotation = 0;
 
     const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
@@ -741,11 +705,13 @@ export class MainScene extends Phaser.Scene {
     this.npcCars.forEach((npcCar, i) => {
       const npc = npcCar.sprite;
 
-      const offsetX = (i + 1) * -TILE_SIZE * 0.6;
+      const offsetX = (i + 1) * TILE_SIZE * 0.7;
       const offsetY = (i % 2 === 0 ? 1 : -1) * TILE_SIZE * 0.2;
 
-      npc.x = this.spawnPos.x + offsetX;
-      npc.y = this.spawnPos.y + offsetY;
+      (npc.body as Phaser.Physics.Arcade.Body).reset(
+        this.spawnPos.x + offsetX,
+        this.spawnPos.y + offsetY,
+      );
 
       const body = npc.body as Phaser.Physics.Arcade.Body;
       body.setVelocity(0, 0);
@@ -767,7 +733,7 @@ export class MainScene extends Phaser.Scene {
     this.updateRacerHUD();
   }
 
-  update(time: number, delta: number) {
+  update(_time: number, delta: number) {
     if (!this.player || !this.cursors) return;
     this.updateNPCs(delta);
 
@@ -783,7 +749,7 @@ export class MainScene extends Phaser.Scene {
     const turnSpeed = 0.003 * delta; // radians per ms
     const accel = 0.004 * delta; // forward acceleration
     const brake = 0.006 * delta; // stronger decel when braking
-    const friction = 0.985; // natural slowdown when coasting
+    const friction = Math.pow(0.985, delta / (1000 / 60)); // natural slowdown when coasting
     const maxSpeed = 300; // forward max
     const maxReverse = 100; // reverse max
 
@@ -839,7 +805,6 @@ export class MainScene extends Phaser.Scene {
 
       // 6) Start timer the first time the player attempts to move this run
       if (!this.hasMoved && (this.cursors.up?.isDown || this.cursors.down?.isDown)) {
-        console.log('!! SETTING this.timerRunning to true 1');
         this.hasMoved = true;
         this.timerRunning = true;
       }
@@ -910,17 +875,16 @@ export class MainScene extends Phaser.Scene {
 
       // Desired velocity along facing
       const body = npc.body as Phaser.Physics.Arcade.Body;
-      const desired = new Phaser.Math.Vector2();
-      this.physics.velocityFromRotation(npc.rotation, npcCar.baseSpeed, desired);
-
-      // Current velocity
-      const current = new Phaser.Math.Vector2(body.velocity.x, body.velocity.y);
+      const desiredX = Math.cos(npc.rotation) * npcCar.baseSpeed;
+      const desiredY = Math.sin(npc.rotation) * npcCar.baseSpeed;
 
       // Traction: how quickly we move current vel toward desired vel
-      const t = Phaser.Math.Clamp(npcCar.traction, 0.05, 0.6);
-      const newVel = current.lerp(desired, t);
-
-      body.setVelocity(newVel.x, newVel.y);
+      const traction = Phaser.Math.Clamp(npcCar.traction, 0.05, 0.6);
+      const t = 1 - Math.pow(1 - traction, delta / (1000 / 60));
+      body.setVelocity(
+        Phaser.Math.Linear(body.velocity.x, desiredX, t),
+        Phaser.Math.Linear(body.velocity.y, desiredY, t),
+      );
 
       // Waypoint reach check (you may already have the 1.1 radius tweak)
       const distSq = dx * dx + dy * dy;
@@ -930,7 +894,6 @@ export class MainScene extends Phaser.Scene {
         npcCar.waypointIndex = (npcCar.waypointIndex + 1) % npcWaypoints.length;
       }
     }
-    this.updateFireEmitters();
   }
   private tryShowRaceResults() {
     if (this.isRaceOver) return;
@@ -940,7 +903,6 @@ export class MainScene extends Phaser.Scene {
 
     // Case A: you finished, wait for all NPCs to be done (finish or DNF)
     if (playerFinished && allNPCDone) {
-      console.log('!! SETTING this.timerRunning to false 1');
       this.isRaceOver = true;
       this.timerRunning = false; // ⬅ stop global clock now
       this.showRaceResults();
@@ -949,7 +911,6 @@ export class MainScene extends Phaser.Scene {
 
     // Case B: you DNF, wait for all NPCs to be done
     if (this.playerDNF && allNPCDone) {
-      console.log('!! SETTING this.timerRunning to true 2');
       this.isRaceOver = true;
       this.timerRunning = false; // ⬅ also stop here
       this.showRaceResults();
@@ -1284,10 +1245,7 @@ export class MainScene extends Phaser.Scene {
       row.status.setColor(color);
     }
   }
-  private shouldCollideWithWall(
-    car: Phaser.Physics.Arcade.Sprite,
-    wallGO: Phaser.GameObjects.GameObject,
-  ): boolean {
+  private shouldCollideWithWall(car: Phaser.Physics.Arcade.Sprite, wallGO: PhysicsObject): boolean {
     // TODO: proper corner collision once we move off Arcade
     const dataObj = wallGO as any;
     const tileType = dataObj.getData?.('tileType') as TileType | undefined;
@@ -1335,17 +1293,11 @@ export class MainScene extends Phaser.Scene {
         return true;
     }
   }
-  private wallProcessPlayer = (
-    playerGO: Phaser.GameObjects.GameObject,
-    wallGO: Phaser.GameObjects.GameObject,
-  ): boolean => {
+  private wallProcessPlayer = (playerGO: PhysicsObject, wallGO: PhysicsObject): boolean => {
     return this.shouldCollideWithWall(playerGO as Phaser.Physics.Arcade.Sprite, wallGO);
   };
 
-  private wallProcessNPC = (
-    npcGO: Phaser.GameObjects.GameObject,
-    wallGO: Phaser.GameObjects.GameObject,
-  ): boolean => {
+  private wallProcessNPC = (npcGO: PhysicsObject, wallGO: PhysicsObject): boolean => {
     return this.shouldCollideWithWall(npcGO as Phaser.Physics.Arcade.Sprite, wallGO);
   };
 }

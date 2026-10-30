@@ -8,7 +8,8 @@ export const GameConfig: type.GameConfig = {
   width: 800,
   height: 600,
   backgroundColor: '#121212',
-  parent: 'app', // Vite's default div id in index.html
+  parent: 'game-container',
+  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
   physics: {
     default: 'arcade',
     arcade: {
